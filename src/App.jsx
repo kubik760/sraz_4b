@@ -1,38 +1,33 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
 import { 
   Users, Calendar, MapPin, CreditCard, ShieldCheck, 
   Plus, Trash2, LogOut, Settings, CheckCircle2, AlertCircle, Edit, UserPlus, X,
-  ChevronLeft, ChevronRight
+  ChevronLeft, ChevronRight, Check
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://pyxdzptkuaqumuocaknw.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_Ns5fITsygkDyXevC44oj6g_ljvgkSha';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// --- KOMPONENTA PRO VÝBĚR ROZSAHU DATUMŮ (OPTIMALIZOVÁNO PRO IPAD / TOUCH) ---
-function DateRangePicker({ startDate, endDate, onChange }) {
+// --- MODÁLNÍ KALENDÁŘ (100% FUNKČNÍ NA IPADU A MOBILU) ---
+function DateRangePickerModal({ startDate, endDate, onChange }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [currentMonth, setCurrentMonth] = useState(() => {
-    if (startDate) {
-      const d = new Date(startDate);
-      if (!isNaN(d.getTime())) return new Date(d.getFullYear(), d.getMonth(), 1);
-    }
-    return new Date();
-  });
-  const [hoverDate, setHoverDate] = useState(null);
-  const containerRef = useRef(null);
+  const [tempStart, setTempStart] = useState(startDate || '');
+  const [tempEnd, setTempEnd] = useState(endDate || '');
+  const [currentMonth, setCurrentMonth] = useState(new Date());
 
   useEffect(() => {
-    function handleTouchOutside(e) {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
-        setIsOpen(false);
+    setTempStart(startDate || '');
+    setTempEnd(endDate || '');
+    if (startDate) {
+      const d = new Date(startDate);
+      if (!isNaN(d.getTime())) {
+        setCurrentMonth(new Date(d.getFullYear(), d.getMonth(), 1));
       }
     }
-    document.addEventListener('pointerdown', handleTouchOutside);
-    return () => document.removeEventListener('pointerdown', handleTouchOutside);
-  }, []);
+  }, [startDate, endDate, isOpen]);
 
   const formatCZ = (dateStr) => {
     if (!dateStr) return '';
@@ -48,28 +43,23 @@ function DateRangePicker({ startDate, endDate, onChange }) {
     return `${year}-${month}-${day}`;
   };
 
-  const handleDayClick = (dayDate) => {
-    const clickedIso = toIso(dayDate);
-    if (!startDate || (startDate && endDate)) {
-      onChange(clickedIso, '');
-    } else if (startDate && !endDate) {
-      if (new Date(clickedIso) < new Date(startDate)) {
-        onChange(clickedIso, '');
+  const handleDaySelect = (dayDate) => {
+    const iso = toIso(dayDate);
+    if (!tempStart || (tempStart && tempEnd)) {
+      setTempStart(iso);
+      setTempEnd('');
+    } else if (tempStart && !tempEnd) {
+      if (new Date(iso) < new Date(tempStart)) {
+        setTempStart(iso);
       } else {
-        onChange(startDate, clickedIso);
-        setIsOpen(false);
+        setTempEnd(iso);
       }
     }
   };
 
-  const nextMonth = (e) => {
-    e.stopPropagation();
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
-  };
-
-  const prevMonth = (e) => {
-    e.stopPropagation();
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
+  const handleConfirm = () => {
+    onChange(tempStart, tempEnd);
+    setIsOpen(false);
   };
 
   const year = currentMonth.getFullYear();
@@ -86,106 +76,135 @@ function DateRangePicker({ startDate, endDate, onChange }) {
   for (let i = 0; i < firstDayIndex; i++) days.push(null);
   for (let d = 1; d <= daysInMonth; d++) days.push(new Date(year, month, d));
 
-  const sTime = startDate ? new Date(startDate).setHours(0, 0, 0, 0) : null;
-  const eTime = endDate ? new Date(endDate).setHours(0, 0, 0, 0) : null;
-  const hTime = hoverDate ? hoverDate.setHours(0, 0, 0, 0) : null;
+  const sTime = tempStart ? new Date(tempStart).setHours(0, 0, 0, 0) : null;
+  const eTime = tempEnd ? new Date(tempEnd).setHours(0, 0, 0, 0) : null;
 
   const displayValue = startDate && endDate 
-    ? `${formatCZ(startDate)} – ${formatCZ(endDate)}`
+    ? `${formatCZ(startDate)} – ${formatCZ(endDate)}` 
     : startDate 
-    ? `${formatCZ(startDate)} – zvolte konec...` 
+    ? `${formatCZ(startDate)}` 
     : '';
 
   return (
-    <div className="relative select-none" ref={containerRef}>
+    <div>
+      {/* Tlačítko pro otevření */}
       <button
         type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
-        className="w-full p-2.5 border rounded-xl bg-white text-xs text-slate-800 flex items-center justify-between cursor-pointer hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition text-left"
+        onClick={() => setIsOpen(true)}
+        className="w-full p-2.5 border-2 border-slate-200 hover:border-blue-500 rounded-xl bg-white text-xs text-slate-800 flex items-center justify-between cursor-pointer transition shadow-sm text-left active:bg-slate-50"
       >
-        <span className={displayValue ? 'font-medium' : 'text-slate-400'}>
-          {displayValue || 'Vyberte termín (kliknutím)'}
+        <span className={displayValue ? 'font-semibold text-blue-600' : 'text-slate-400'}>
+          {displayValue || 'Klepnutím vyberte termín akce'}
         </span>
-        <Calendar size={15} className="text-slate-400 flex-shrink-0" />
+        <Calendar size={18} className="text-blue-500 ml-2 flex-shrink-0" />
       </button>
 
+      {/* Vyskakovací okno na iPadu přes střed obrazovky */}
       {isOpen && (
-        <div 
-          className="absolute top-full left-0 mt-2 bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-72 sm:w-80"
-          style={{ zIndex: 9999 }}
-        >
-          <div className="flex justify-between items-center mb-3">
-            <button 
-              type="button" 
-              onClick={prevMonth} 
-              className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 active:bg-slate-200"
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <span className="text-xs font-bold text-slate-800">
-              {monthNames[month]} {year}
-            </span>
-            <button 
-              type="button" 
-              onClick={nextMonth} 
-              className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 active:bg-slate-200"
-            >
-              <ChevronRight size={18} />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-slate-400 mb-2">
-            <span>Po</span><span>Út</span><span>St</span><span>Čt</span><span>Pá</span><span>So</span><span>Ne</span>
-          </div>
-
-          <div className="grid grid-cols-7 gap-1 text-center">
-            {days.map((day, idx) => {
-              if (!day) return <div key={'empty_' + idx} className="h-9" />;
-
-              const dTime = new Date(day).setHours(0, 0, 0, 0);
-              const isStart = sTime && dTime === sTime;
-              const isEnd = eTime && dTime === eTime;
-              const inRange = sTime && eTime && dTime > sTime && dTime < eTime;
-              const inHoverRange = sTime && !eTime && hTime && dTime > sTime && dTime <= hTime;
-
-              let cellClass = "h-9 text-xs flex items-center justify-center cursor-pointer rounded-lg transition active:scale-95 ";
-
-              if (isStart || isEnd) {
-                cellClass += "bg-blue-600 text-white font-bold shadow-sm ";
-              } else if (inRange || inHoverRange) {
-                cellClass += "bg-blue-100 text-blue-800 font-medium ";
-              } else {
-                cellClass += "text-slate-700 hover:bg-slate-100 ";
-              }
-
-              return (
-                <button
-                  type="button"
-                  key={idx}
-                  onClick={() => handleDayClick(day)}
-                  onMouseEnter={() => setHoverDate(day)}
-                  className={cellClass}
-                >
-                  {day.getDate()}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="mt-3 pt-2 border-t flex justify-between items-center text-[10px] text-slate-400">
-            <span>1. klik: Začátek | 2. klik: Konec</span>
-            {startDate && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[99999] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 flex flex-col">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-800">Termín akce</h3>
+                <p className="text-[11px] text-slate-400">1. klepnutí začátek, 2. klepnutí konec</p>
+              </div>
               <button 
                 type="button" 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onChange('', '');
+                onClick={() => setIsOpen(false)}
+                className="p-2 text-slate-400 hover:text-slate-700 rounded-full hover:bg-slate-100"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Náhled výběru */}
+            <div className="bg-slate-50 p-3 rounded-2xl mb-4 text-center border border-slate-100">
+              <span className="text-xs font-semibold text-slate-700">
+                {tempStart ? formatCZ(tempStart) : 'Od'} 
+                {'  —  '} 
+                {tempEnd ? formatCZ(tempEnd) : 'Do'}
+              </span>
+            </div>
+
+            {/* Přepínání měsíců */}
+            <div className="flex justify-between items-center mb-3 px-1">
+              <button 
+                type="button"
+                onClick={() => setCurrentMonth(new Date(year, month - 1, 1))}
+                className="p-2 hover:bg-slate-100 rounded-xl text-slate-700 active:bg-slate-200"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <span className="text-sm font-bold text-slate-800">
+                {monthNames[month]} {year}
+              </span>
+              <button 
+                type="button"
+                onClick={() => setCurrentMonth(new Date(year, month + 1, 1))}
+                className="p-2 hover:bg-slate-100 rounded-xl text-slate-700 active:bg-slate-200"
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+
+            {/* Dny v týdnu */}
+            <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-bold text-slate-400 mb-2">
+              <span>Po</span><span>Út</span><span>St</span><span>Čt</span><span>Pá</span><span>So</span><span>Ne</span>
+            </div>
+
+            {/* Mřížka dnů */}
+            <div className="grid grid-cols-7 gap-1 text-center mb-6">
+              {days.map((day, idx) => {
+                if (!day) return <div key={'empty_' + idx} className="h-10" />;
+
+                const dTime = new Date(day).setHours(0, 0, 0, 0);
+                const isStart = sTime && dTime === sTime;
+                const isEnd = eTime && dTime === eTime;
+                const inRange = sTime && eTime && dTime > sTime && dTime < eTime;
+
+                let cellClass = "h-10 text-xs flex items-center justify-center font-medium rounded-xl transition cursor-pointer ";
+
+                if (isStart || isEnd) {
+                  cellClass += "bg-blue-600 text-white font-bold shadow-md ";
+                } else if (inRange) {
+                  cellClass += "bg-blue-100 text-blue-800 ";
+                } else {
+                  cellClass += "text-slate-700 hover:bg-slate-100 active:bg-slate-200 ";
+                }
+
+                return (
+                  <button
+                    type="button"
+                    key={idx}
+                    onClick={() => handleDaySelect(day)}
+                    className={cellClass}
+                  >
+                    {day.getDate()}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Tlačítka dole */}
+            <div className="flex gap-2 pt-2 border-t">
+              <button
+                type="button"
+                onClick={() => {
+                  setTempStart('');
+                  setTempEnd('');
                 }}
-                className="text-red-500 hover:underline p-1 font-semibold"
+                className="px-4 py-2.5 text-xs text-red-600 hover:bg-red-50 rounded-xl font-medium"
               >
                 Vymazat
               </button>
-            )}
+              <button
+                type="button"
+                onClick={handleConfirm}
+                className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md flex items-center justify-center gap-1.5"
+              >
+                <Check size={16} /> Potvrdit termín
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -195,27 +214,23 @@ function DateRangePicker({ startDate, endDate, onChange }) {
 
 // --- HLAVNÍ APLIKACE ---
 export default function App() {
-  const [mode, setMode] = useState('login'); // 'login', 'participant', 'admin'
+  const [mode, setMode] = useState('login');
   const [currentUser, setCurrentUser] = useState(null);
   const [settings, setSettings] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   
-  // Login stavy
   const [loginUser, setLoginUser] = useState('');
   const [loginPin, setLoginPin] = useState('');
   const [adminPinInput, setAdminPinInput] = useState('');
 
-  // Data přihlášeného účastníka
   const [attendees, setAttendees] = useState([]);
   const [newAttFirst, setNewAttFirst] = useState('');
   const [newAttLast, setNewAttLast] = useState('');
   const [newAttYear, setNewAttYear] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
 
-  // Formulář účastníka pro uložení
   const [pFormData, setPFormData] = useState({});
 
-  // Data pro Admin
   const [allParticipants, setAllParticipants] = useState([]);
   const [allAttendees, setAllAttendees] = useState([]);
   const [adminForm, setAdminForm] = useState({});
@@ -247,7 +262,6 @@ export default function App() {
     }
   };
 
-  // Přihlášení účastníka
   async function handleParticipantLogin(e) {
     e.preventDefault();
     setErrorMsg('');
@@ -281,7 +295,6 @@ export default function App() {
     setMode('participant');
   }
 
-  // Přihlášení Admina
   async function handleAdminLogin(e) {
     e.preventDefault();
     setErrorMsg('');
@@ -305,7 +318,6 @@ export default function App() {
     setAllAttendees(atts || []);
   }
 
-  // Výpočet ceny
   const calculatePricingFor = (attList, petType, transportType) => {
     if (!settings) return { total: 0, deposit: 0 };
     let total = 0;
@@ -336,7 +348,6 @@ export default function App() {
     return { total, deposit };
   };
 
-  // QR Kód
   useEffect(() => {
     if (mode === 'participant' && currentUser && settings) {
       const { deposit } = calculatePricingFor(attendees, pFormData.pet_type, pFormData.transport_type);
@@ -356,7 +367,6 @@ export default function App() {
     }
   }, [mode, attendees, pFormData, settings, currentUser]);
 
-  // Uložení účastníka
   async function saveParticipantData() {
     const { total, deposit } = calculatePricingFor(attendees, pFormData.pet_type, pFormData.transport_type);
     const fullName = `${pFormData.first_name} ${pFormData.last_name}`.trim() || currentUser.full_name;
@@ -371,7 +381,6 @@ export default function App() {
     alert('Údaje byly úspěšně uloženy!');
   }
 
-  // Přidání doprovodu účastníkem
   async function addAttendee(e) {
     e.preventDefault();
     if (!newAttFirst || !newAttYear) return;
@@ -399,7 +408,6 @@ export default function App() {
     setAttendees(attendees.filter(a => a.id !== id));
   }
 
-  // --- ADMIN FUNKCE ---
   async function handleAdminSave(e) {
     e.preventDefault();
     await supabase.from('event_settings').update(adminForm).eq('id', 1);
@@ -440,7 +448,6 @@ export default function App() {
     setModalAttendees([]);
   }
 
-  // Uložení detailu v Admin modálu
   async function saveModalParticipant(e) {
     e.preventDefault();
     const ep = editingParticipant;
@@ -546,7 +553,7 @@ export default function App() {
     }
   }
 
-  // --- RENDEROVÁNÍ: LOGIN ---
+  // --- LOGIN ---
   if (mode === 'login') {
     return (
       <div className="flex items-center justify-center min-h-screen px-4">
@@ -615,7 +622,7 @@ export default function App() {
     );
   }
 
-  // --- RENDEROVÁNÍ: ÚČASTNÍK ---
+  // --- ÚČASTNÍK ---
   if (mode === 'participant') {
     const { total, deposit } = calculatePricingFor(attendees, pFormData.pet_type, pFormData.transport_type);
 
@@ -635,7 +642,6 @@ export default function App() {
           </button>
         </header>
 
-        {/* Informace o akci */}
         <div className="bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-3xl p-6 shadow-md mb-6">
           <h2 className="text-xl font-semibold mb-2">{settings?.event_title}</h2>
           <div className="space-y-1 text-sm text-blue-100">
@@ -651,7 +657,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Stav zálohy */}
         <div className={`p-4 rounded-2xl mb-6 border flex items-center gap-3 ${
           currentUser.deposit_paid ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-800'
         }`}>
@@ -664,7 +669,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* 1. Osobní údaje účastníka */}
+        {/* Údaje účastníka */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 mb-6 space-y-4">
           <h3 className="font-semibold text-slate-800 text-base">Vaše kontaktní údaje (pro ubytovatele)</h3>
           <div className="grid grid-cols-2 gap-3 text-sm">
@@ -703,7 +708,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* 2. Kdo pojede s vámi */}
+        {/* Kdo jede */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 mb-6">
           <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
             <Users size={18} /> Další osoby s vámi ({attendees.length})
@@ -755,7 +760,7 @@ export default function App() {
           </form>
         </div>
 
-        {/* 3. Zvíře a Doprava */}
+        {/* Zvíře a Doprava */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 mb-6 space-y-4">
           <h3 className="font-semibold text-slate-800 text-base">Zvíře a Doprava</h3>
 
@@ -806,7 +811,7 @@ export default function App() {
           </button>
         </div>
 
-        {/* 4. Vyúčtování a QR platba */}
+        {/* Vyúčtování */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
           <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
             <CreditCard size={18} /> Vyúčtování a platba zálohy
@@ -848,7 +853,7 @@ export default function App() {
     );
   }
 
-  // --- RENDEROVÁNÍ: ADMIN ---
+  // --- ADMIN PANEL ---
   if (mode === 'admin') {
     return (
       <div className="max-w-6xl mx-auto p-4 sm:p-6 pb-24">
@@ -861,7 +866,7 @@ export default function App() {
           </button>
         </header>
 
-        {/* 1. Účastníci */}
+        {/* Přehled účastníků */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 mb-8">
           <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-4">
             <div>
@@ -939,7 +944,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* 2. Globální nastavení akce */}
+        {/* Globální nastavení */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
           <h2 className="text-lg font-bold mb-4 text-slate-800">Globální nastavení akce, cen a banky</h2>
           <form onSubmit={handleAdminSave} className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
@@ -952,12 +957,12 @@ export default function App() {
               <input type="text" value={adminForm.location || ''} onChange={e => setAdminForm({...adminForm, location: e.target.value})} className="w-full p-2.5 border rounded-xl" />
             </div>
 
-            {/* VYSKAKOVACÍ KALENDÁŘ S VÝBĚREM ROZSAHU (OD - DO) */}
+            {/* MODÁLNÍ VÝBĚR TERMÍNU (OD - DO) */}
             <div>
               <label className="block text-xs text-slate-500 mb-1 font-medium flex items-center gap-1">
                 <Calendar size={13} /> Termín akce (od – do)
               </label>
-              <DateRangePicker 
+              <DateRangePickerModal 
                 startDate={adminForm.date_start} 
                 endDate={adminForm.date_end} 
                 onChange={(start, end) => setAdminForm({ ...adminForm, date_start: start, date_end: end })}
@@ -973,7 +978,6 @@ export default function App() {
               <input type="text" value={adminForm.iban || ''} onChange={e => setAdminForm({...adminForm, iban: e.target.value})} className="w-full p-2.5 border rounded-xl" />
             </div>
 
-            {/* Kalendář pro splatnost zálohy */}
             <div>
               <label className="block text-xs text-slate-500 mb-1 font-medium flex items-center gap-1">
                 <Calendar size={13} /> Splatnost zálohy do
@@ -1013,16 +1017,16 @@ export default function App() {
             </div>
 
             <div className="md:col-span-3">
-              <button type="submit" className="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition">
+              <button type="submit" className="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition shadow">
                 Uložit nastavení akce
               </button>
             </div>
           </form>
         </div>
 
-        {/* MODÁLNÍ OKNO PRO DETAILNÍ EDITACI ÚČASTNÍKA */}
+        {/* Modál pro editaci účastníka */}
         {editingParticipant && (
-          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 overflow-y-auto">
             <div className="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl my-8 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-6 border-b pb-3">
                 <h3 className="text-xl font-bold text-slate-800">
@@ -1034,7 +1038,6 @@ export default function App() {
               </div>
 
               <form onSubmit={saveModalParticipant} className="space-y-6">
-                {/* Přihlašovací údaje a VS */}
                 <div className="bg-slate-50 p-4 rounded-2xl">
                   <h4 className="text-xs font-bold uppercase text-slate-500 mb-3">Přístup a párování</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
@@ -1071,7 +1074,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Osobní údaje */}
                 <div>
                   <h4 className="text-xs font-bold uppercase text-slate-500 mb-3">Osobní údaje a adresa</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
@@ -1110,7 +1112,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Zvíře, Doprava, Stav zálohy */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm border-t pt-4">
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">Zvíře</label>
@@ -1149,7 +1150,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Doprovázející osoby */}
                 <div className="border-t pt-4">
                   <div className="flex justify-between items-center mb-2">
                     <h4 className="text-xs font-bold uppercase text-slate-500">
@@ -1215,7 +1215,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Tlačítka uložení */}
                 <div className="flex justify-between items-center border-t pt-4">
                   {!editingParticipant.isNew ? (
                     <button 
