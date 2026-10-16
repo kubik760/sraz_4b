@@ -11,13 +11,13 @@ const SUPABASE_URL = 'https://pyxdzptkuaqumuocaknw.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_Ns5fITsygkDyXevC44oj6g_ljvgkSha';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-// --- KOMPONENTA PRO VÝBĚR ROZSAHU DATUMŮ (OD - DO) ---
+// --- KOMPONENTA PRO VÝBĚR ROZSAHU DATUMŮ (OPTIMALIZOVÁNO PRO IPAD / TOUCH) ---
 function DateRangePicker({ startDate, endDate, onChange }) {
   const [isOpen, setIsOpen] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(() => {
     if (startDate) {
       const d = new Date(startDate);
-      if (!isNaN(d)) return new Date(d.getFullYear(), d.getMonth(), 1);
+      if (!isNaN(d.getTime())) return new Date(d.getFullYear(), d.getMonth(), 1);
     }
     return new Date();
   });
@@ -25,13 +25,13 @@ function DateRangePicker({ startDate, endDate, onChange }) {
   const containerRef = useRef(null);
 
   useEffect(() => {
-    function handleClickOutside(e) {
+    function handleTouchOutside(e) {
       if (containerRef.current && !containerRef.current.contains(e.target)) {
         setIsOpen(false);
       }
     }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('pointerdown', handleTouchOutside);
+    return () => document.removeEventListener('pointerdown', handleTouchOutside);
   }, []);
 
   const formatCZ = (dateStr) => {
@@ -51,32 +51,30 @@ function DateRangePicker({ startDate, endDate, onChange }) {
   const handleDayClick = (dayDate) => {
     const clickedIso = toIso(dayDate);
     if (!startDate || (startDate && endDate)) {
-      // Začátek nového výběru
       onChange(clickedIso, '');
     } else if (startDate && !endDate) {
       if (new Date(clickedIso) < new Date(startDate)) {
-        // Pokud kliknul na dřívější datum, nastavíme ho jako nový začátek
         onChange(clickedIso, '');
       } else {
-        // Druhé datum - dokončení rozsahu
         onChange(startDate, clickedIso);
         setIsOpen(false);
       }
     }
   };
 
-  const nextMonth = () => {
+  const nextMonth = (e) => {
+    e.stopPropagation();
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
   };
 
-  const prevMonth = () => {
+  const prevMonth = (e) => {
+    e.stopPropagation();
     setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
   };
 
-  // Generování matice kalendáře
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth();
-  const firstDayIndex = (new Date(year, month, 1).getDay() + 6) % 7; // Pondělí = 0
+  const firstDayIndex = (new Date(year, month, 1).getDay() + 6) % 7;
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
   const monthNames = [
@@ -85,12 +83,8 @@ function DateRangePicker({ startDate, endDate, onChange }) {
   ];
 
   const days = [];
-  for (let i = 0; i < firstDayIndex; i++) {
-    days.push(null);
-  }
-  for (let d = 1; d <= daysInMonth; d++) {
-    days.push(new Date(year, month, d));
-  }
+  for (let i = 0; i < firstDayIndex; i++) days.push(null);
+  for (let d = 1; d <= daysInMonth; d++) days.push(new Date(year, month, d));
 
   const sTime = startDate ? new Date(startDate).setHours(0, 0, 0, 0) : null;
   const eTime = endDate ? new Date(endDate).setHours(0, 0, 0, 0) : null;
@@ -99,31 +93,34 @@ function DateRangePicker({ startDate, endDate, onChange }) {
   const displayValue = startDate && endDate 
     ? `${formatCZ(startDate)} – ${formatCZ(endDate)}`
     : startDate 
-    ? `${formatCZ(startDate)} – vyberte konec...` 
+    ? `${formatCZ(startDate)} – zvolte konec...` 
     : '';
 
   return (
-    <div className="relative" ref={containerRef}>
-      <div 
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full p-2.5 border rounded-xl bg-white text-xs text-slate-800 flex items-center justify-between cursor-pointer hover:border-blue-400 focus:ring-2 focus:ring-blue-500 transition"
+    <div className="relative select-none" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="w-full p-2.5 border rounded-xl bg-white text-xs text-slate-800 flex items-center justify-between cursor-pointer hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition text-left"
       >
         <span className={displayValue ? 'font-medium' : 'text-slate-400'}>
           {displayValue || 'Vyberte termín (kliknutím)'}
         </span>
-        <Calendar size={15} className="text-slate-400" />
-      </div>
+        <Calendar size={15} className="text-slate-400 flex-shrink-0" />
+      </button>
 
       {isOpen && (
-        <div className="absolute top-full left-0 mt-2 bg-white rounded-2xl shadow-2xl border border-slate-100 p-4 z-50 w-72">
-          {/* Hlavička měsíce a šipky */}
+        <div 
+          className="absolute top-full left-0 mt-2 bg-white rounded-2xl shadow-2xl border border-slate-200 p-4 w-72 sm:w-80"
+          style={{ zIndex: 9999 }}
+        >
           <div className="flex justify-between items-center mb-3">
             <button 
               type="button" 
               onClick={prevMonth} 
-              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
+              className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 active:bg-slate-200"
             >
-              <ChevronLeft size={16} />
+              <ChevronLeft size={18} />
             </button>
             <span className="text-xs font-bold text-slate-800">
               {monthNames[month]} {year}
@@ -131,21 +128,19 @@ function DateRangePicker({ startDate, endDate, onChange }) {
             <button 
               type="button" 
               onClick={nextMonth} 
-              className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-600 transition"
+              className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 active:bg-slate-200"
             >
-              <ChevronRight size={16} />
+              <ChevronRight size={18} />
             </button>
           </div>
 
-          {/* Dny v týdnu */}
-          <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-slate-400 mb-1">
+          <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-slate-400 mb-2">
             <span>Po</span><span>Út</span><span>St</span><span>Čt</span><span>Pá</span><span>So</span><span>Ne</span>
           </div>
 
-          {/* Dny */}
           <div className="grid grid-cols-7 gap-1 text-center">
             {days.map((day, idx) => {
-              if (!day) return <div key={'empty_' + idx} className="h-8" />;
+              if (!day) return <div key={'empty_' + idx} className="h-9" />;
 
               const dTime = new Date(day).setHours(0, 0, 0, 0);
               const isStart = sTime && dTime === sTime;
@@ -153,25 +148,26 @@ function DateRangePicker({ startDate, endDate, onChange }) {
               const inRange = sTime && eTime && dTime > sTime && dTime < eTime;
               const inHoverRange = sTime && !eTime && hTime && dTime > sTime && dTime <= hTime;
 
-              let cellClass = "h-8 text-xs flex items-center justify-center cursor-pointer transition rounded-lg ";
+              let cellClass = "h-9 text-xs flex items-center justify-center cursor-pointer rounded-lg transition active:scale-95 ";
 
               if (isStart || isEnd) {
-                cellClass += "bg-blue-600 text-white font-bold ";
+                cellClass += "bg-blue-600 text-white font-bold shadow-sm ";
               } else if (inRange || inHoverRange) {
-                cellClass += "bg-blue-50 text-blue-700 font-medium ";
+                cellClass += "bg-blue-100 text-blue-800 font-medium ";
               } else {
                 cellClass += "text-slate-700 hover:bg-slate-100 ";
               }
 
               return (
-                <div
+                <button
+                  type="button"
                   key={idx}
                   onClick={() => handleDayClick(day)}
                   onMouseEnter={() => setHoverDate(day)}
                   className={cellClass}
                 >
                   {day.getDate()}
-                </div>
+                </button>
               );
             })}
           </div>
@@ -181,8 +177,11 @@ function DateRangePicker({ startDate, endDate, onChange }) {
             {startDate && (
               <button 
                 type="button" 
-                onClick={() => onChange('', '')}
-                className="text-red-500 hover:underline"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onChange('', '');
+                }}
+                className="text-red-500 hover:underline p-1 font-semibold"
               >
                 Vymazat
               </button>
@@ -665,7 +664,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* 1. Osobní údaje účastníka pro ubytování */}
+        {/* 1. Osobní údaje účastníka */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 mb-6 space-y-4">
           <h3 className="font-semibold text-slate-800 text-base">Vaše kontaktní údaje (pro ubytovatele)</h3>
           <div className="grid grid-cols-2 gap-3 text-sm">
