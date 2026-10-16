@@ -7,8 +7,8 @@ import {
 } from 'lucide-react';
 
 // Nahraď svými klíči z Supabase -> Settings -> API
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'SEM_VLOZ_SUPABASE_URL';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'SEM_VLOZ_ANON_KEY';
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://pyxdzptkuaqumuocaknw.supabase.co/rest/v1/';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_Ns5fITsygkDyXevC44oj6g_ljvgkSha';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 export default function App() {
