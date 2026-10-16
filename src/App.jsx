@@ -50,20 +50,6 @@ export default function App() {
     }
   }
 
-  // Pomocná funkce pro české formátování data
-  const formatDateCZ = (dateStr) => {
-    if (!dateStr) return '';
-    try {
-      const parts = dateStr.split('-');
-      if (parts.length === 3) {
-        return `${parseInt(parts[2], 10)}. ${parseInt(parts[1], 10)}. ${parts[0]}`;
-      }
-      return dateStr;
-    } catch {
-      return dateStr;
-    }
-  };
-
   // Přihlášení účastníka
   async function handleParticipantLogin(e) {
     e.preventDefault();
@@ -128,8 +114,9 @@ export default function App() {
     let total = 0;
     const currentYear = new Date().getFullYear();
 
+    // Každý doprovázející člen
     attList.forEach(a => {
-      const birthYear = parseInt(a.birth_year, 10) || (currentYear - (parseInt(a.age, 10) || 30));
+      const birthYear = parseInt(a.birth_year) || (currentYear - (parseInt(a.age) || 30));
       const age = Math.max(0, currentYear - birthYear);
 
       if (age <= settings.child_infant_max_age) {
@@ -145,6 +132,7 @@ export default function App() {
       }
     });
 
+    // Zvíře
     if (petType && petType !== 'none') {
       total += Number(settings.price_pet);
     }
@@ -173,7 +161,7 @@ export default function App() {
     }
   }, [mode, attendees, pFormData, settings, currentUser]);
 
-  // Uložení údajů účastníka
+  // Uložení formuláře účastníka
   async function saveParticipantData() {
     const { total, deposit } = calculatePricingFor(attendees, pFormData.pet_type, pFormData.transport_type);
     const fullName = `${pFormData.first_name} ${pFormData.last_name}`.trim() || currentUser.full_name;
@@ -193,14 +181,13 @@ export default function App() {
     e.preventDefault();
     if (!newAttFirst || !newAttYear) return;
 
-    const currentYear = new Date().getFullYear();
     const { data } = await supabase.from('attendees').insert({
       participant_id: currentUser.id,
       first_name: newAttFirst.trim(),
       last_name: newAttLast.trim() || pFormData.last_name,
       birth_year: newAttYear.trim(),
       name: `${newAttFirst.trim()} ${newAttLast.trim()}`.trim(),
-      age: Math.max(0, currentYear - parseInt(newAttYear, 10))
+      age: Math.max(0, new Date().getFullYear() - parseInt(newAttYear))
     }).select().single();
 
     if (data) {
@@ -318,7 +305,6 @@ export default function App() {
   }
 
   async function saveModalAttendeeRow(a) {
-    const currentYear = new Date().getFullYear();
     if (a.isNew) {
       if (!editingParticipant.id) {
         alert('Nejprve uložte nového účastníka, pak přidávejte doprovod.');
@@ -330,7 +316,7 @@ export default function App() {
         last_name: a.last_name,
         birth_year: a.birth_year,
         name: `${a.first_name} ${a.last_name}`.trim(),
-        age: Math.max(0, currentYear - parseInt(a.birth_year || 2000, 10))
+        age: Math.max(0, new Date().getFullYear() - parseInt(a.birth_year || 2000))
       }).select().single();
       if (data) {
         setModalAttendees(modalAttendees.map(item => item.id === a.id ? data : item));
@@ -342,7 +328,7 @@ export default function App() {
         last_name: a.last_name,
         birth_year: a.birth_year,
         name: `${a.first_name} ${a.last_name}`.trim(),
-        age: Math.max(0, currentYear - parseInt(a.birth_year || 2000, 10))
+        age: Math.max(0, new Date().getFullYear() - parseInt(a.birth_year || 2000))
       }).eq('id', a.id);
       loadAdminData();
     }
@@ -459,12 +445,7 @@ export default function App() {
           <div className="space-y-1 text-sm text-blue-100">
             {settings?.location && <p className="flex items-center gap-2"><MapPin size={16} /> {settings.location}</p>}
             {(settings?.date_start || settings?.date_end) && (
-              <p className="flex items-center gap-2">
-                <Calendar size={16} /> 
-                {formatDateCZ(settings.date_start)}
-                {settings.date_start && settings.date_end ? ' – ' : ''}
-                {formatDateCZ(settings.date_end)}
-              </p>
+              <p className="flex items-center gap-2"><Calendar size={16} /> {settings.date_start} – {settings.date_end}</p>
             )}
           </div>
         </div>
@@ -477,7 +458,7 @@ export default function App() {
           <div>
             <p className="font-semibold">{currentUser.deposit_paid ? 'Záloha byla v pořádku přijata!' : 'Záloha čeká na úhradu'}</p>
             <p className="text-xs opacity-80">
-              {currentUser.deposit_paid ? 'Děkujeme, rezervace je potvrzena.' : `Splatnost zálohy: ${formatDateCZ(settings?.deposit_deadline) || 'dle domluvy'}`}
+              {currentUser.deposit_paid ? 'Děkujeme, rezervace je potvrzena.' : `Splatnost zálohy: ${settings?.deposit_deadline || 'dle domluvy'}`}
             </p>
           </div>
         </div>
@@ -504,7 +485,7 @@ export default function App() {
             </div>
             <div>
               <label className="block text-xs text-slate-500 mb-1">Datum narození</label>
-              <input type="date" value={pFormData.birth_date} onChange={e => setPFormData({...pFormData, birth_date: e.target.value})} className="w-full p-2.5 border rounded-xl bg-white" />
+              <input type="text" placeholder="DD.MM.RRRR" value={pFormData.birth_date} onChange={e => setPFormData({...pFormData, birth_date: e.target.value})} className="w-full p-2.5 border rounded-xl" />
             </div>
             <div>
               <label className="block text-xs text-slate-500 mb-1">Ulice a č.p.</label>
@@ -679,7 +660,7 @@ export default function App() {
           </button>
         </header>
 
-        {/* 1. Účastníci */}
+        {/* 1. Rychlé akce a seznam účastníků */}
         <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 mb-8">
           <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-4">
             <div>
@@ -762,49 +743,295 @@ export default function App() {
           <h2 className="text-lg font-bold mb-4 text-slate-800">Globální nastavení akce, cen a banky</h2>
           <form onSubmit={handleAdminSave} className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
             <div>
-              <label className="block text-xs text-slate-500 mb-1 font-medium">Název akce</label>
+              <label className="block text-xs text-slate-500 mb-1">Název akce</label>
               <input type="text" value={adminForm.event_title || ''} onChange={e => setAdminForm({...adminForm, event_title: e.target.value})} className="w-full p-2.5 border rounded-xl" />
             </div>
             <div>
-              <label className="block text-xs text-slate-500 mb-1 font-medium">Místo</label>
+              <label className="block text-xs text-slate-500 mb-1">Místo</label>
               <input type="text" value={adminForm.location || ''} onChange={e => setAdminForm({...adminForm, location: e.target.value})} className="w-full p-2.5 border rounded-xl" />
             </div>
-
-            {/* Kalendář pro výběr termínu (OD - DO) */}
-            <div className="md:col-span-1">
-              <label className="block text-xs text-slate-500 mb-1 font-medium flex items-center gap-1">
-                <Calendar size={13} /> Termín akce (Od – Do)
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="relative">
-                  <span className="absolute -top-1.5 left-2 bg-white px-1 text-[9px] text-slate-400 font-semibold">OD</span>
-                  <input 
-                    type="date" 
-                    value={adminForm.date_start || ''} 
-                    onChange={e => {
-                      const newStart = e.target.value;
-                      setAdminForm({
-                        ...adminForm, 
-                        date_start: newStart,
-                        date_end: (adminForm.date_end && adminForm.date_end < newStart) ? newStart : adminForm.date_end
-                      });
-                    }} 
-                    className="w-full p-2.5 pt-2 border rounded-xl bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer" 
-                  />
-                </div>
-                <div className="relative">
-                  <span className="absolute -top-1.5 left-2 bg-white px-1 text-[9px] text-slate-400 font-semibold">DO</span>
-                  <input 
-                    type="date" 
-                    min={adminForm.date_start || ''}
-                    value={adminForm.date_end || ''} 
-                    onChange={e => setAdminForm({...adminForm, date_end: e.target.value})} 
-                    className="w-full p-2.5 pt-2 border rounded-xl bg-white text-xs text-slate-800 outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer" 
-                  />
-                </div>
-              </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Termín (od - do)</label>
+              <input type="text" value={adminForm.date_start || ''} onChange={e => setAdminForm({...adminForm, date_start: e.target.value})} className="w-full p-2.5 border rounded-xl" />
             </div>
 
             <div>
-              <label className="block text-xs text-slate-500 mb-1 font-medium">Číslo účtu (pro lidi)</label>
-              <input type="text" value={adminForm.bank_account || ''} onChange={e => setAdminForm({...adminForm, bank_account: e.target.value})} className="w-full p
+              <label className="block text-xs text-slate-500 mb-1">Číslo účtu (pro lidi)</label>
+              <input type="text" value={adminForm.bank_account || ''} onChange={e => setAdminForm({...adminForm, bank_account: e.target.value})} className="w-full p-2.5 border rounded-xl" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">IBAN (nutný pro QR kód)</label>
+              <input type="text" value={adminForm.iban || ''} onChange={e => setAdminForm({...adminForm, iban: e.target.value})} className="w-full p-2.5 border rounded-xl" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Splatnost zálohy do</label>
+              <input type="text" value={adminForm.deposit_deadline || ''} onChange={e => setAdminForm({...adminForm, deposit_deadline: e.target.value})} className="w-full p-2.5 border rounded-xl" />
+            </div>
+
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Cena dospělý (Kč)</label>
+              <input type="number" value={adminForm.price_adult || 0} onChange={e => setAdminForm({...adminForm, price_adult: e.target.value})} className="w-full p-2.5 border rounded-xl" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Cena junior / dítě (Kč)</label>
+              <input type="number" value={adminForm.price_child_junior || 0} onChange={e => setAdminForm({...adminForm, price_child_junior: e.target.value})} className="w-full p-2.5 border rounded-xl" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Výše zálohy (%)</label>
+              <input type="number" value={adminForm.deposit_percentage || 50} onChange={e => setAdminForm({...adminForm, deposit_percentage: e.target.value})} className="w-full p-2.5 border rounded-xl" />
+            </div>
+
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Poplatek za zvíře (Kč)</label>
+              <input type="number" value={adminForm.price_pet || 0} onChange={e => setAdminForm({...adminForm, price_pet: e.target.value})} className="w-full p-2.5 border rounded-xl" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Doprava za osobu (Kč)</label>
+              <input type="number" value={adminForm.price_transport || 0} onChange={e => setAdminForm({...adminForm, price_transport: e.target.value})} className="w-full p-2.5 border rounded-xl" />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Admin PIN</label>
+              <input type="text" value={adminForm.admin_pin || ''} onChange={e => setAdminForm({...adminForm, admin_pin: e.target.value})} className="w-full p-2.5 border rounded-xl" />
+            </div>
+
+            <div className="md:col-span-3">
+              <button type="submit" className="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition">
+                Uložit nastavení akce
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* MODÁLNÍ OKNO PRO DETAILNÍ EDITACI ÚČASTNÍKA */}
+        {editingParticipant && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl my-8 max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-6 border-b pb-3">
+                <h3 className="text-xl font-bold text-slate-800">
+                  {editingParticipant.isNew ? 'Nový účastník' : `Editace: ${editingParticipant.full_name || editingParticipant.username}`}
+                </h3>
+                <button onClick={() => setEditingParticipant(null)} className="p-1 text-slate-400 hover:text-slate-700">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <form onSubmit={saveModalParticipant} className="space-y-6">
+                {/* Přihlašovací údaje a VS */}
+                <div className="bg-slate-50 p-4 rounded-2xl">
+                  <h4 className="text-xs font-bold uppercase text-slate-500 mb-3">Přístup a párování</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Uživatelské jméno</label>
+                      <input 
+                        type="text" 
+                        value={editingParticipant.username} 
+                        onChange={e => setEditingParticipant({...editingParticipant, username: e.target.value})} 
+                        className="w-full p-2 border rounded-xl bg-white" 
+                        required 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Heslo / PIN</label>
+                      <input 
+                        type="text" 
+                        value={editingParticipant.pin} 
+                        onChange={e => setEditingParticipant({...editingParticipant, pin: e.target.value})} 
+                        className="w-full p-2 border rounded-xl bg-white" 
+                        required 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Variabilní symbol</label>
+                      <input 
+                        type="text" 
+                        value={editingParticipant.variable_symbol} 
+                        onChange={e => setEditingParticipant({...editingParticipant, variable_symbol: e.target.value})} 
+                        className="w-full p-2 border rounded-xl bg-white" 
+                        required 
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Osobní údaje */}
+                <div>
+                  <h4 className="text-xs font-bold uppercase text-slate-500 mb-3">Osobní údaje a adresa</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Jméno</label>
+                      <input type="text" value={editingParticipant.first_name || ''} onChange={e => setEditingParticipant({...editingParticipant, first_name: e.target.value})} className="w-full p-2 border rounded-xl" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Příjmení</label>
+                      <input type="text" value={editingParticipant.last_name || ''} onChange={e => setEditingParticipant({...editingParticipant, last_name: e.target.value})} className="w-full p-2 border rounded-xl" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Datum narození</label>
+                      <input type="text" placeholder="DD.MM.RRRR" value={editingParticipant.birth_date || ''} onChange={e => setEditingParticipant({...editingParticipant, birth_date: e.target.value})} className="w-full p-2 border rounded-xl" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Telefon</label>
+                      <input type="text" value={editingParticipant.phone || ''} onChange={e => setEditingParticipant({...editingParticipant, phone: e.target.value})} className="w-full p-2 border rounded-xl" />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs text-slate-500 mb-1">E-mail</label>
+                      <input type="email" value={editingParticipant.email || ''} onChange={e => setEditingParticipant({...editingParticipant, email: e.target.value})} className="w-full p-2 border rounded-xl" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Ulice a č.p.</label>
+                      <input type="text" value={editingParticipant.street || ''} onChange={e => setEditingParticipant({...editingParticipant, street: e.target.value})} className="w-full p-2 border rounded-xl" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Město</label>
+                      <input type="text" value={editingParticipant.city || ''} onChange={e => setEditingParticipant({...editingParticipant, city: e.target.value})} className="w-full p-2 border rounded-xl" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">PSČ</label>
+                      <input type="text" value={editingParticipant.zip || ''} onChange={e => setEditingParticipant({...editingParticipant, zip: e.target.value})} className="w-full p-2 border rounded-xl" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Zvíře, Doprava, Stav zálohy */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm border-t pt-4">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Zvíře</label>
+                    <select 
+                      value={editingParticipant.pet_type || 'none'} 
+                      onChange={e => setEditingParticipant({...editingParticipant, pet_type: e.target.value})}
+                      className="w-full p-2 border rounded-xl bg-white"
+                    >
+                      <option value="none">Žádné</option>
+                      <option value="dog">Pes</option>
+                      <option value="cat">Kočka</option>
+                      <option value="other">Jiné</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Doprava</label>
+                    <select 
+                      value={editingParticipant.transport_type || 'own'} 
+                      onChange={e => setEditingParticipant({...editingParticipant, transport_type: e.target.value})}
+                      className="w-full p-2 border rounded-xl bg-white"
+                    >
+                      <option value="own">Vlastní</option>
+                      <option value="shared">Společná</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Stav zálohy</label>
+                    <select 
+                      value={editingParticipant.deposit_paid ? 'true' : 'false'} 
+                      onChange={e => setEditingParticipant({...editingParticipant, deposit_paid: e.target.value === 'true'})}
+                      className="w-full p-2 border rounded-xl bg-white font-semibold"
+                    >
+                      <option value="false">Čeká na úhradu</option>
+                      <option value="true">Záloha zaplacena</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Doprovázející osoby */}
+                <div className="border-t pt-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <h4 className="text-xs font-bold uppercase text-slate-500">
+                      Doprovázející osoby ({modalAttendees.length})
+                    </h4>
+                    {!editingParticipant.isNew && (
+                      <button 
+                        type="button" 
+                        onClick={addModalAttendee}
+                        className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg flex items-center gap-1"
+                      >
+                        <Plus size={14} /> Přidat osobu
+                      </button>
+                    )}
+                  </div>
+
+                  {editingParticipant.isNew && (
+                    <p className="text-xs text-amber-600 mb-2">
+                      * Doprovázející osoby můžete přidat po prvním uložení účastníka.
+                    </p>
+                  )}
+
+                  <div className="space-y-2">
+                    {modalAttendees.map(a => (
+                      <div key={a.id} className="flex items-center gap-2 bg-slate-50 p-2.5 rounded-xl text-sm">
+                        <input 
+                          type="text" 
+                          value={a.first_name || ''} 
+                          placeholder="Jméno"
+                          onChange={e => updateModalAttendee(a.id, 'first_name', e.target.value)}
+                          className="w-1/3 p-1.5 border rounded-lg bg-white"
+                        />
+                        <input 
+                          type="text" 
+                          value={a.last_name || ''} 
+                          placeholder="Příjmení"
+                          onChange={e => updateModalAttendee(a.id, 'last_name', e.target.value)}
+                          className="w-1/3 p-1.5 border rounded-lg bg-white"
+                        />
+                        <input 
+                          type="number" 
+                          value={a.birth_year || ''} 
+                          placeholder="Rok narození"
+                          onChange={e => updateModalAttendee(a.id, 'birth_year', e.target.value)}
+                          className="w-24 p-1.5 border rounded-lg bg-white"
+                        />
+                        <button 
+                          type="button" 
+                          onClick={() => saveModalAttendeeRow(a)} 
+                          className="px-2.5 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-xs font-semibold"
+                        >
+                          Uložit
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => removeModalAttendeeRow(a.id)} 
+                          className="p-1.5 text-slate-400 hover:text-red-600"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Tlačítka pro uložení celého účastníka */}
+                <div className="flex justify-between items-center border-t pt-4">
+                  {!editingParticipant.isNew ? (
+                    <button 
+                      type="button" 
+                      onClick={() => deleteParticipant(editingParticipant.id)}
+                      className="px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-sm font-semibold transition"
+                    >
+                      Smazat účastníka
+                    </button>
+                  ) : <div />}
+
+                  <div className="flex gap-2">
+                    <button 
+                      type="button" 
+                      onClick={() => setEditingParticipant(null)}
+                      className="px-5 py-2.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-xl text-sm font-medium"
+                    >
+                      Zrušit
+                    </button>
+                    <button 
+                      type="submit" 
+                      className="px-6 py-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-xl text-sm font-semibold shadow"
+                    >
+                      Uložit změny účastníka
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+}
