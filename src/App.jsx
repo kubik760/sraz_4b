@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 
 // Nahraď svými klíči z Supabase -> Settings -> API
-const SUPABASE_URL = 'https://pyxdzptkuaqumuocaknw.supabase.co/rest/v1/';
+const SUPABASE_URL = 'https://pyxdzptkuaqumuocaknw.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_Ns5fITsygkDyXevC44oj6g_ljvgkSha';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
