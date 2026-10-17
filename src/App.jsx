@@ -417,9 +417,9 @@ export default function App() {
 
   // Filtrování a řazení v sekci Správa uživatelů
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortField, setSortField] = useState('last_name'); // 'first_name' | 'last_name'
+  const [sortField, setSortField] = useState('last_name'); // 'last_name', 'first_name', 'birth_date', 'email', 'phone', 'role', 'variable_symbol'
   const [sortOrder, setSortOrder] = useState('asc'); // 'asc' | 'desc'
-  const [editingUserModal, setEditingUserModal] = useState(null); // uživatel otevíraný v editačním okně admina
+  const [editingUserModal, setEditingUserModal] = useState(null);
 
   useEffect(() => {
     loadSettings();
@@ -737,7 +737,6 @@ export default function App() {
       deposit_paid: !!u.deposit_paid
     };
 
-    // Role: Pokud to není superadmin, může admin roli změnit
     if (!isSuperAdmin(u.email, u.username)) {
       payload.role = u.role || 'user';
     }
@@ -748,7 +747,6 @@ export default function App() {
       return;
     }
 
-    // Pokud admin editoval sám sebe, aktualizujeme i currentUser
     if (currentUser.id === u.id) {
       setCurrentUser({ ...currentUser, ...payload });
     }
@@ -800,7 +798,17 @@ export default function App() {
     }
   }, [currentUser, attendees, profileForm.pet_type, profileForm.transport_type, settings]);
 
-  // Logika filtrování a třídění uživatelů pro admina
+  // Řazení kliknutím na záhlaví sloupců
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  // Filtrování a řazení
   const filteredUsers = allParticipants
     .filter(p => {
       const q = searchQuery.toLowerCase().trim();
@@ -808,23 +816,32 @@ export default function App() {
       const fn = (p.first_name || '').toLowerCase();
       const ln = (p.last_name || '').toLowerCase();
       const em = (p.email || '').toLowerCase();
-      return fn.includes(q) || ln.includes(q) || em.includes(q);
+      const vs = (p.variable_symbol || '').toLowerCase();
+      const ph = (p.phone || '').toLowerCase();
+      return fn.includes(q) || ln.includes(q) || em.includes(q) || vs.includes(q) || ph.includes(q);
     })
     .sort((a, b) => {
-      const fieldA = (a[sortField] || '').toLowerCase();
-      const fieldB = (b[sortField] || '').toLowerCase();
+      let fieldA = (a[sortField] || '').toString().toLowerCase();
+      let fieldB = (b[sortField] || '').toString().toLowerCase();
+      if (sortField === 'variable_symbol') {
+        const numA = parseInt(fieldA, 10) || 0;
+        const numB = parseInt(fieldB, 10) || 0;
+        return sortOrder === 'asc' ? numA - numB : numB - numA;
+      }
       if (fieldA < fieldB) return sortOrder === 'asc' ? -1 : 1;
       if (fieldA > fieldB) return sortOrder === 'asc' ? 1 : -1;
       return 0;
     });
 
-  const toggleSort = (field) => {
-    if (sortField === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortOrder('asc');
+  const renderSortIndicator = (field) => {
+    if (sortField !== field) {
+      return <ArrowUpDown size={12} className="text-slate-300 opacity-60 group-hover:opacity-100 transition" />;
     }
+    return sortOrder === 'asc' ? (
+      <ArrowUp size={13} className="text-blue-600 font-bold" />
+    ) : (
+      <ArrowDown size={13} className="text-blue-600 font-bold" />
+    );
   };
 
   // --- 1. AUTENTIZACE ---
@@ -1161,16 +1178,16 @@ export default function App() {
                   <Home size={18} /> Úvodní přehled
                 </button>
 
+                {/* ZDE: PŘEJMENOVÁNO NA "Akce" */}
                 <button
                   onClick={() => { setActiveScreen('trip'); setIsMenuOpen(false); }}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
                     activeScreen === 'trip' ? 'bg-blue-50 text-blue-600' : 'hover:bg-slate-50 text-slate-700'
                   }`}
                 >
-                  <Users size={18} /> Společný výlet & Účastníci
+                  <Users size={18} /> Akce
                 </button>
 
-                {/* ZDE: PŘEJMENOVÁNO NA "Správa uživatelů" A PŘÍSTUPNÉ POUZE PRO ADMINA */}
                 {currentUser.role === 'admin' && (
                   <button
                     onClick={() => { setActiveScreen('users'); setIsMenuOpen(false); }}
@@ -1215,7 +1232,7 @@ export default function App() {
       )}
 
       {/* OBSAH OBRAZOVKY */}
-      <main className="max-w-5xl mx-auto p-4 sm:p-6 pb-24">
+      <main className="max-w-6xl mx-auto p-4 sm:p-6 pb-24">
         {/* 1. UVÍTÁNÍ */}
         {activeScreen === 'welcome' && (
           <div className="space-y-6">
@@ -1238,7 +1255,7 @@ export default function App() {
                 className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm hover:border-blue-300 transition cursor-pointer"
               >
                 <Users className="text-blue-600 mb-2" size={28} />
-                <h3 className="font-bold text-sm text-slate-800">Moje registrace & Výlet</h3>
+                <h3 className="font-bold text-sm text-slate-800">Akce</h3>
                 <p className="text-xs text-slate-400 mt-1">Nastav si doprovod, dopravu, zvíře a zkontroluj stav platby zálohy.</p>
               </div>
 
@@ -1444,7 +1461,7 @@ export default function App() {
           </div>
         )}
 
-        {/* 3. VÝLET A REGISTRACE */}
+        {/* 3. VÝLET A REGISTRACE (AKCE) */}
         {activeScreen === 'trip' && (
           <div className="space-y-6">
             <div className={`p-4 rounded-2xl border flex items-center gap-3 ${
@@ -1542,6 +1559,7 @@ export default function App() {
               </div>
             </div>
 
+            {/* Vyúčtování a QR platba */}
             {(() => {
               const { total, deposit } = calculatePricingFor(attendees, profileForm.pet_type, profileForm.transport_type);
               return (
@@ -1614,17 +1632,17 @@ export default function App() {
               <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
                 <div>
                   <h3 className="font-bold text-slate-800 text-base">Správa uživatelů ({filteredUsers.length})</h3>
-                  <p className="text-xs text-slate-400">Přehled, vyhledávání a kompletní editace všech registrovaných účastníků.</p>
+                  <p className="text-xs text-slate-400">Kliknutím na záhlaví libovolného sloupce můžete tabulku seřadit.</p>
                 </div>
 
                 {/* Vyhledávací pole */}
-                <div className="relative w-full sm:w-64">
+                <div className="relative w-full sm:w-72">
                   <Search size={16} className="absolute left-3 top-3 text-slate-400" />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Hledat podle jména, e-mailu..."
+                    placeholder="Hledat (jméno, e-mail, telefon, VS)..."
                     className="w-full pl-9 pr-4 py-2 border rounded-xl text-xs bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500"
                   />
                   {searchQuery && (
@@ -1635,41 +1653,83 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Tlačítka pro rychlé řazení */}
-              <div className="flex items-center gap-2 mb-4 text-xs font-semibold text-slate-600">
-                <span className="text-slate-400 text-[11px]">Řadit podle:</span>
-                <button
-                  onClick={() => toggleSort('last_name')}
-                  className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition ${
-                    sortField === 'last_name' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white hover:bg-slate-50'
-                  }`}
-                >
-                  Příjmení
-                  {sortField === 'last_name' && (sortOrder === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} />)}
-                </button>
-                <button
-                  onClick={() => toggleSort('first_name')}
-                  className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition ${
-                    sortField === 'first_name' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white hover:bg-slate-50'
-                  }`}
-                >
-                  Jméno
-                  {sortField === 'first_name' && (sortOrder === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} />)}
-                </button>
-              </div>
-
-              {/* Tabulka uživatelů */}
+              {/* Tabulka uživatelů s řazením v hlavičkách */}
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
-                    <tr className="border-b text-slate-400 font-semibold uppercase">
+                    <tr className="border-b text-slate-500 font-bold uppercase select-none">
                       <th className="p-2.5">Fotka</th>
-                      <th className="p-2.5">Příjmení a Jméno</th>
-                      <th className="p-2.5">E-mail</th>
-                      <th className="p-2.5">Telefon</th>
-                      <th className="p-2.5">VS</th>
-                      <th className="p-2.5">Role</th>
-                      <th className="p-2.5">Záloha</th>
+                      
+                      <th 
+                        onClick={() => handleSort('last_name')}
+                        className="p-2.5 cursor-pointer hover:text-blue-600 transition group"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>Příjmení</span>
+                          {renderSortIndicator('last_name')}
+                        </div>
+                      </th>
+
+                      <th 
+                        onClick={() => handleSort('first_name')}
+                        className="p-2.5 cursor-pointer hover:text-blue-600 transition group"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>Jméno</span>
+                          {renderSortIndicator('first_name')}
+                        </div>
+                      </th>
+
+                      <th 
+                        onClick={() => handleSort('birth_date')}
+                        className="p-2.5 cursor-pointer hover:text-blue-600 transition group"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>Datum narození</span>
+                          {renderSortIndicator('birth_date')}
+                        </div>
+                      </th>
+
+                      <th 
+                        onClick={() => handleSort('email')}
+                        className="p-2.5 cursor-pointer hover:text-blue-600 transition group"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>E-mail</span>
+                          {renderSortIndicator('email')}
+                        </div>
+                      </th>
+
+                      <th 
+                        onClick={() => handleSort('phone')}
+                        className="p-2.5 cursor-pointer hover:text-blue-600 transition group"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>Telefon</span>
+                          {renderSortIndicator('phone')}
+                        </div>
+                      </th>
+
+                      <th 
+                        onClick={() => handleSort('role')}
+                        className="p-2.5 cursor-pointer hover:text-blue-600 transition group"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>Role</span>
+                          {renderSortIndicator('role')}
+                        </div>
+                      </th>
+
+                      <th 
+                        onClick={() => handleSort('variable_symbol')}
+                        className="p-2.5 cursor-pointer hover:text-blue-600 transition group"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span>VS</span>
+                          {renderSortIndicator('variable_symbol')}
+                        </div>
+                      </th>
+
                       <th className="p-2.5 text-right">Akce</th>
                     </tr>
                   </thead>
@@ -1685,12 +1745,11 @@ export default function App() {
                             )}
                           </div>
                         </td>
-                        <td className="p-2.5 font-bold text-slate-800">
-                          {p.last_name} {p.first_name}
-                        </td>
+                        <td className="p-2.5 font-bold text-slate-900">{p.last_name || '–'}</td>
+                        <td className="p-2.5 font-medium text-slate-800">{p.first_name || '–'}</td>
+                        <td className="p-2.5 text-slate-600">{formatCZ(p.birth_date) || '–'}</td>
                         <td className="p-2.5 text-slate-600">{p.email}</td>
                         <td className="p-2.5 text-slate-600">{p.phone || '–'}</td>
-                        <td className="p-2.5 font-mono font-bold text-slate-700">{p.variable_symbol}</td>
                         <td className="p-2.5">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                             p.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'
@@ -1698,13 +1757,7 @@ export default function App() {
                             {p.role === 'admin' ? 'Admin' : 'Uživatel'}
                           </span>
                         </td>
-                        <td className="p-2.5">
-                          <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
-                            p.deposit_paid ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                          }`}>
-                            {p.deposit_paid ? 'Zaplaceno' : 'Čeká'}
-                          </span>
-                        </td>
+                        <td className="p-2.5 font-mono font-bold text-slate-700">{p.variable_symbol}</td>
                         <td className="p-2.5 text-right">
                           <button
                             onClick={() => setEditingUserModal({ ...p })}
@@ -1718,7 +1771,7 @@ export default function App() {
                     ))}
                     {filteredUsers.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="p-6 text-center text-slate-400">
+                        <td colSpan={9} className="p-6 text-center text-slate-400">
                           Žádný uživatel neodpovídá zadanému hledání.
                         </td>
                       </tr>
@@ -1793,7 +1846,6 @@ export default function App() {
             </div>
 
             <form onSubmit={handleAdminSaveUser} className="space-y-4 text-xs">
-              {/* Fotka uživatele */}
               <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-2xl border">
                 <div className="w-16 h-16 rounded-full bg-slate-200 overflow-hidden flex items-center justify-center border-2 border-white shadow flex-shrink-0">
                   {editingUserModal.photo_url ? (
@@ -1842,7 +1894,7 @@ export default function App() {
                   />
                 </div>
 
-                {/* VARIABILNÍ SYMBOL - TRVALE UZAMČENÝ I PRO ADMINA */}
+                {/* VARIABILNÍ SYMBOL - TRVALE UZAMČENÝ */}
                 <div>
                   <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
                     Variabilní symbol <Lock size={12} />
