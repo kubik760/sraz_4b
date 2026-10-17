@@ -5,7 +5,7 @@ import {
   Users, Calendar, MapPin, CreditCard, ShieldCheck, 
   Plus, Trash2, LogOut, Settings, CheckCircle2, AlertCircle, Edit, UserPlus, X,
   ChevronLeft, ChevronRight, Check, KeyRound, Lock, Eye, Menu, Camera, User, Home,
-  Search, ArrowUpDown, ArrowUp, ArrowDown
+  Search, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, UserX
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://pyxdzptkuaqumuocaknw.supabase.co';
@@ -373,19 +373,15 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState('');
   const [infoMsg, setInfoMsg] = useState('');
 
-  // Navigace ('welcome', 'profile', 'trip', 'users')
   const [activeScreen, setActiveScreen] = useState('welcome');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  // Přihlašovací stav
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPin, setLoginPin] = useState('');
 
-  // Reset hesla
   const [forgotEmail, setForgotEmail] = useState('');
   const [newResetPassword, setNewResetPassword] = useState('');
 
-  // Registrační stav
   const [regData, setRegData] = useState({
     first_name: '',
     last_name: '',
@@ -402,7 +398,6 @@ export default function App() {
   const [verifyEmail, setVerifyEmail] = useState('');
   const [otpPin, setOtpPin] = useState('');
 
-  // Profil & Výlet
   const [profileForm, setProfileForm] = useState({});
   const [attendees, setAttendees] = useState([]);
   const [newAttFirst, setNewAttFirst] = useState('');
@@ -410,15 +405,13 @@ export default function App() {
   const [newAttYear, setNewAttYear] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
 
-  // Správa uživatelů & Admin
   const [allParticipants, setAllParticipants] = useState([]);
   const [allAttendees, setAllAttendees] = useState([]);
   const [adminForm, setAdminForm] = useState({});
 
-  // Filtrování a řazení v sekci Správa uživatelů
   const [searchQuery, setSearchQuery] = useState('');
-  const [sortField, setSortField] = useState('last_name'); // 'last_name', 'first_name', 'birth_date', 'email', 'phone', 'role', 'variable_symbol'
-  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' | 'desc'
+  const [sortField, setSortField] = useState('last_name');
+  const [sortOrder, setSortOrder] = useState('asc');
   const [editingUserModal, setEditingUserModal] = useState(null);
 
   useEffect(() => {
@@ -571,7 +564,8 @@ export default function App() {
       phone: fullPhone,
       email: cleanEmail,
       photo_url: regData.photo_url || '',
-      is_verified: false
+      is_verified: false,
+      deletion_requested: false
     });
 
     if (insertErr) {
@@ -672,7 +666,6 @@ export default function App() {
     setAuthView('login');
   }
 
-  // Nahrání fotky
   const handlePhotoUpload = async (e, target) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -709,6 +702,14 @@ export default function App() {
       pin: profileForm.password ? profileForm.password.trim() : currentUser.pin
     };
 
+    // Pokud je přihlášen Jakub Horák, může v profilu editovat i své jméno, příjmení a datum narození
+    if (isSuperAdmin(currentUser.email, currentUser.username)) {
+      payload.first_name = profileForm.first_name || '';
+      payload.last_name = profileForm.last_name || '';
+      payload.birth_date = profileForm.birth_date || '';
+      payload.full_name = `${profileForm.first_name || ''} ${profileForm.last_name || ''}`.trim();
+    }
+
     await supabase.from('participants').update(payload).eq('id', currentUser.id);
     const updated = { ...currentUser, ...payload, phone: fullPhone };
     setCurrentUser(updated);
@@ -717,7 +718,20 @@ export default function App() {
     alert('Profil byl v pořádku aktualizován.');
   }
 
-  // Uložení uživatele administrátorem (Admin může měnit vše KROMĚ variabilního symbolu)
+  // Žádost o smazání účtu běžným uživatelem
+  async function handleRequestDeletion() {
+    if (!confirm('Opravdu si přejete požádat administrátora o smazání vašeho účtu a zrušení účasti?')) {
+      return;
+    }
+    const { error } = await supabase.from('participants').update({ deletion_requested: true }).eq('id', currentUser.id);
+    if (!error) {
+      setCurrentUser({ ...currentUser, deletion_requested: true });
+      loadAllData();
+      alert('Vaše žádost o smazání účtu byla odeslána administrátorovi ke schválení.');
+    }
+  }
+
+  // Uložení uživatele administrátorem (Admin mění vše KROMĚ variabilního symbolu)
   async function handleAdminSaveUser(e) {
     e.preventDefault();
     const u = editingUserModal;
@@ -733,9 +747,18 @@ export default function App() {
       city: u.city || '',
       zip: u.zip || '',
       photo_url: u.photo_url || '',
-      pin: u.pin || '',
       deposit_paid: !!u.deposit_paid
     };
+
+    // Heslo změní jen v případě, že admin do pole zadal novou hodnotu
+    if (u.new_password && u.new_password.trim()) {
+      const pwdErr = validatePasswordStrength(u.new_password.trim());
+      if (pwdErr) {
+        alert(pwdErr);
+        return;
+      }
+      payload.pin = u.new_password.trim();
+    }
 
     if (!isSuperAdmin(u.email, u.username)) {
       payload.role = u.role || 'user';
@@ -798,7 +821,6 @@ export default function App() {
     }
   }, [currentUser, attendees, profileForm.pet_type, profileForm.transport_type, settings]);
 
-  // Řazení kliknutím na záhlaví sloupců
   const handleSort = (field) => {
     if (sortField === field) {
       setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
@@ -808,7 +830,6 @@ export default function App() {
     }
   };
 
-  // Filtrování a řazení
   const filteredUsers = allParticipants
     .filter(p => {
       const q = searchQuery.toLowerCase().trim();
@@ -1178,7 +1199,6 @@ export default function App() {
                   <Home size={18} /> Úvodní přehled
                 </button>
 
-                {/* ZDE: PŘEJMENOVÁNO NA "Akce" */}
                 <button
                   onClick={() => { setActiveScreen('trip'); setIsMenuOpen(false); }}
                   className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
@@ -1201,7 +1221,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* DOLE V MENU: PROFILOVÁ KARTA */}
             <div className="border-t pt-4">
               <div 
                 onClick={() => { setActiveScreen('profile'); setIsMenuOpen(false); }}
@@ -1275,7 +1294,11 @@ export default function App() {
         {activeScreen === 'profile' && (
           <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-100">
             <h2 className="text-lg font-bold text-slate-800 mb-1">Můj osobní profil</h2>
-            <p className="text-xs text-slate-400 mb-6">Šedivě označená pole (jméno, příjmení, datum narození, role a variabilní symbol) jsou v profilu trvale uzamčena.</p>
+            <p className="text-xs text-slate-400 mb-6">
+              {isUserSuperAdmin 
+                ? 'Jako hlavní administrátor můžete v profilu upravovat veškeré své údaje kromě variabilního symbolu a role.'
+                : 'Šedivě označená pole (jméno, příjmení, datum narození, role a variabilní symbol) jsou v profilu trvale uzamčena.'}
+            </p>
 
             <div className="flex items-center gap-6 mb-6 pb-6 border-b">
               <div className="w-20 h-20 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center border-2 border-blue-500 shadow-md flex-shrink-0">
@@ -1296,39 +1319,48 @@ export default function App() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
               <div>
-                <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
-                  Jméno <Lock size={12} />
+                <label className="block text-slate-600 mb-1 font-semibold flex items-center gap-1">
+                  Jméno {!isUserSuperAdmin && <Lock size={12} className="text-slate-400" />}
                 </label>
                 <input
                   type="text"
                   value={profileForm.first_name || ''}
-                  disabled
-                  className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-500 font-medium cursor-not-allowed"
+                  disabled={!isUserSuperAdmin}
+                  onChange={e => setProfileForm({...profileForm, first_name: e.target.value})}
+                  className={`w-full p-2.5 border rounded-xl font-medium ${!isUserSuperAdmin ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white'}`}
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
-                  Příjmení <Lock size={12} />
+                <label className="block text-slate-600 mb-1 font-semibold flex items-center gap-1">
+                  Příjmení {!isUserSuperAdmin && <Lock size={12} className="text-slate-400" />}
                 </label>
                 <input
                   type="text"
                   value={profileForm.last_name || ''}
-                  disabled
-                  className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-500 font-medium cursor-not-allowed"
+                  disabled={!isUserSuperAdmin}
+                  onChange={e => setProfileForm({...profileForm, last_name: e.target.value})}
+                  className={`w-full p-2.5 border rounded-xl font-medium ${!isUserSuperAdmin ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : 'bg-white'}`}
                 />
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
-                  Datum narození <Lock size={12} />
+                <label className="block text-slate-600 mb-1 font-semibold flex items-center gap-1">
+                  Datum narození {!isUserSuperAdmin && <Lock size={12} className="text-slate-400" />}
                 </label>
-                <input
-                  type="text"
-                  value={formatCZ(profileForm.birth_date) || '–'}
-                  disabled
-                  className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-500 font-medium cursor-not-allowed"
-                />
+                {isUserSuperAdmin ? (
+                  <BirthDatePickerModal
+                    value={profileForm.birth_date || ''}
+                    onChange={d => setProfileForm({...profileForm, birth_date: d})}
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={formatCZ(profileForm.birth_date) || '–'}
+                    disabled
+                    className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-500 font-medium cursor-not-allowed"
+                  />
+                )}
               </div>
 
               <div>
@@ -1372,7 +1404,7 @@ export default function App() {
               </div>
 
               <div className="col-span-2 pt-3 border-t">
-                <span className="font-bold text-slate-700">Kontaktní údaje a adresa (můžete upravovat):</span>
+                <span className="font-bold text-slate-700">Kontaktní údaje a adresa:</span>
               </div>
 
               <div className="col-span-2 sm:col-span-1">
@@ -1449,11 +1481,31 @@ export default function App() {
               </div>
             </div>
 
-            <div className="mt-6 pt-4 border-t flex justify-end">
+            <div className="mt-6 pt-4 border-t flex flex-col sm:flex-row justify-between items-center gap-3">
+              {/* Tlačítko žádosti o smazání / ochrana Jakuba Horáka */}
+              {!isUserSuperAdmin && (
+                <div>
+                  {currentUser.deletion_requested ? (
+                    <span className="text-xs text-amber-600 bg-amber-50 border border-amber-200 px-3 py-2 rounded-xl flex items-center gap-1.5 font-medium">
+                      <AlertTriangle size={15} /> Žádost o smazání účtu čeká na schválení administrátorem
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleRequestDeletion}
+                      className="text-xs text-red-600 hover:text-red-700 hover:bg-red-50 border border-red-200 px-4 py-2 rounded-xl font-medium transition"
+                    >
+                      Požádat o smazání
+                    </button>
+                  )}
+                </div>
+              )}
+              {isUserSuperAdmin && <div />}
+
               <button
                 type="button"
                 onClick={handleSaveProfile}
-                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-xs shadow"
+                className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl text-xs shadow w-full sm:w-auto"
               >
                 Uložit změny v profilu
               </button>
@@ -1559,7 +1611,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Vyúčtování a QR platba */}
             {(() => {
               const { total, deposit } = calculatePricingFor(attendees, profileForm.pet_type, profileForm.transport_type);
               return (
@@ -1635,7 +1686,6 @@ export default function App() {
                   <p className="text-xs text-slate-400">Kliknutím na záhlaví libovolného sloupce můžete tabulku seřadit.</p>
                 </div>
 
-                {/* Vyhledávací pole */}
                 <div className="relative w-full sm:w-72">
                   <Search size={16} className="absolute left-3 top-3 text-slate-400" />
                   <input
@@ -1653,7 +1703,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Tabulka uživatelů s řazením v hlavičkách */}
+              {/* Tabulka uživatelů */}
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
@@ -1735,7 +1785,7 @@ export default function App() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredUsers.map(p => (
-                      <tr key={p.id} className="hover:bg-slate-50 transition">
+                      <tr key={p.id} className={`hover:bg-slate-50 transition ${p.deletion_requested ? 'bg-red-50/50' : ''}`}>
                         <td className="p-2.5">
                           <div className="w-8 h-8 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center flex-shrink-0 border">
                             {p.photo_url ? (
@@ -1745,7 +1795,14 @@ export default function App() {
                             )}
                           </div>
                         </td>
-                        <td className="p-2.5 font-bold text-slate-900">{p.last_name || '–'}</td>
+                        <td className="p-2.5 font-bold text-slate-900">
+                          {p.last_name || '–'}
+                          {p.deletion_requested && (
+                            <span className="block text-[10px] text-red-600 font-semibold flex items-center gap-1 mt-0.5">
+                              <AlertTriangle size={11} /> Žádá o smazání
+                            </span>
+                          )}
+                        </td>
                         <td className="p-2.5 font-medium text-slate-800">{p.first_name || '–'}</td>
                         <td className="p-2.5 text-slate-600">{formatCZ(p.birth_date) || '–'}</td>
                         <td className="p-2.5 text-slate-600">{p.email}</td>
@@ -1760,7 +1817,7 @@ export default function App() {
                         <td className="p-2.5 font-mono font-bold text-slate-700">{p.variable_symbol}</td>
                         <td className="p-2.5 text-right">
                           <button
-                            onClick={() => setEditingUserModal({ ...p })}
+                            onClick={() => setEditingUserModal({ ...p, new_password: '' })}
                             className="p-2 bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600 rounded-xl transition flex items-center gap-1 ml-auto font-medium"
                             title="Upravit uživatele"
                           >
@@ -1845,6 +1902,27 @@ export default function App() {
               </button>
             </div>
 
+            {/* Informace o žádosti o smazání */}
+            {editingUserModal.deletion_requested && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-2xl mb-4 text-xs flex justify-between items-center">
+                <div className="flex items-center gap-2 text-red-700 font-semibold">
+                  <AlertTriangle size={18} /> Uživatel požádal o smazání svého účtu!
+                </div>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await supabase.from('participants').update({ deletion_requested: false }).eq('id', editingUserModal.id);
+                    setEditingUserModal({ ...editingUserModal, deletion_requested: false });
+                    loadAllData();
+                    alert('Žádost o smazání byla zamítnuta.');
+                  }}
+                  className="px-3 py-1 bg-white border border-red-200 text-red-700 rounded-lg font-bold hover:bg-red-100"
+                >
+                  Zamítnout žádost
+                </button>
+              </div>
+            )}
+
             <form onSubmit={handleAdminSaveUser} className="space-y-4 text-xs">
               <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-2xl border">
                 <div className="w-16 h-16 rounded-full bg-slate-200 overflow-hidden flex items-center justify-center border-2 border-white shadow flex-shrink-0">
@@ -1894,7 +1972,6 @@ export default function App() {
                   />
                 </div>
 
-                {/* VARIABILNÍ SYMBOL - TRVALE UZAMČENÝ */}
                 <div>
                   <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
                     Variabilní symbol <Lock size={12} />
@@ -1958,13 +2035,15 @@ export default function App() {
                   />
                 </div>
 
+                {/* Heslo: Původní heslo se nezobrazuje, lze zadat pouze nové */}
                 <div>
-                  <label className="block text-slate-600 mb-1 font-semibold">Heslo (PIN)</label>
+                  <label className="block text-slate-600 mb-1 font-semibold">Nastavit nové heslo (volitelné)</label>
                   <input
-                    type="text"
-                    value={editingUserModal.pin || ''}
-                    onChange={e => setEditingUserModal({...editingUserModal, pin: e.target.value})}
-                    className="w-full p-2.5 border rounded-xl bg-white font-mono"
+                    type="password"
+                    value={editingUserModal.new_password || ''}
+                    onChange={e => setEditingUserModal({...editingUserModal, new_password: e.target.value})}
+                    placeholder="Vyplňte jen pro změnu hesla..."
+                    className="w-full p-2.5 border rounded-xl bg-white"
                   />
                 </div>
 
@@ -2003,23 +2082,24 @@ export default function App() {
               </div>
 
               <div className="flex justify-between items-center pt-4 border-t mt-4">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (isSuperAdmin(editingUserModal.email, editingUserModal.username)) {
-                      alert('Hlavního administrátora nelze smazat.');
-                      return;
-                    }
-                    if (confirm(`Opravdu chcete smazat uživatele ${editingUserModal.first_name} ${editingUserModal.last_name}?`)) {
-                      await supabase.from('participants').delete().eq('id', editingUserModal.id);
-                      setEditingUserModal(null);
-                      loadAllData();
-                    }
-                  }}
-                  className="px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-semibold"
-                >
-                  Smazat uživatele
-                </button>
+                {/* Tlačítko smazat: U Jakuba Horáka se nezobrazuje vůbec */}
+                {!isSuperAdmin(editingUserModal.email, editingUserModal.username) ? (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (confirm(`Opravdu chcete nenávratně smazat uživatele ${editingUserModal.first_name} ${editingUserModal.last_name}?`)) {
+                        await supabase.from('participants').delete().eq('id', editingUserModal.id);
+                        setEditingUserModal(null);
+                        loadAllData();
+                      }
+                    }}
+                    className="px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-semibold flex items-center gap-1.5 transition"
+                  >
+                    <UserX size={15} /> Smazat uživatele
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-slate-400 italic">Hlavní administrátor nelze smazat</span>
+                )}
 
                 <div className="flex gap-2">
                   <button
