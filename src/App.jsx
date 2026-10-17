@@ -91,9 +91,9 @@ const validatePasswordStrength = (pwd) => {
 
 // Kontrola, zda jde o hlavního správce akce
 const isSuperAdmin = (email, username) => {
-  const e = (email || '').toLowerCase();
-  const u = (username || '').toLowerCase();
-  return e === 'kubik.horak@gmail.com' || e.includes('spidys') || u === 'spidys';
+  const e = (email || '').toLowerCase().trim();
+  const u = (username || '').toLowerCase().trim();
+  return e === 'kubik.horak@gmail.com' || u === 'spidys';
 };
 
 // --- MODÁLNÍ KALENDÁŘ PRO ROZSAH TERMÍNU (OD - DO) ---
@@ -442,7 +442,6 @@ export default function App() {
     setAllAttendees(atts || []);
   }
 
-  // Rozdělení telefonního čísla na předvolbu a číslo
   const parsePhone = (fullPhone) => {
     if (!fullPhone) return { prefix: '+420', number: '' };
     for (let p of PHONE_PREFIXES) {
@@ -480,10 +479,12 @@ export default function App() {
       return;
     }
 
-    // Ujistíme se, že kubik.horak@gmail.com a spidys mají vždy roli admin
-    if (isSuperAdmin(data.email, data.username) && data.role !== 'admin') {
+    // Striktní kontrola role: Pouze kubik.horak@gmail.com je automaticky admin
+    if (isSuperAdmin(data.email, data.username)) {
       data.role = 'admin';
-      await supabase.from('participants').update({ role: 'admin' }).eq('id', data.id);
+    } else {
+      // Pokud to není superadmin a v DB měl náhodou admin, zkontrolujeme načtenou hodnotu
+      data.role = data.role === 'admin' ? 'admin' : 'user';
     }
 
     const parsed = parsePhone(data.phone);
@@ -503,7 +504,7 @@ export default function App() {
     setAttendees(data || []);
   }
 
-  // 2. REGISTRACE (Každý nový uživatel dostane automaticky 'user')
+  // 2. REGISTRACE (Každý nový uživatel dostane VŽDY 'user')
   async function handleRegister(e) {
     e.preventDefault();
     setErrorMsg('');
@@ -549,7 +550,8 @@ export default function App() {
     }
 
     const fullName = `${regData.first_name.trim()} ${regData.last_name.trim()}`;
-    // Automaticky role 'user', jedině kubik.horak má admin
+    
+    // ZDE: Nový uživatel je VŽDY 'user', jedině kubik.horak@gmail.com je admin
     const initialRole = cleanEmail === 'kubik.horak@gmail.com' ? 'admin' : 'user';
     const fullPhone = `${regData.phone_prefix} ${regData.phone_number.trim()}`;
 
@@ -557,7 +559,7 @@ export default function App() {
       auth_id: authData?.user?.id || null,
       username: cleanEmail,
       pin: regData.password.trim(),
-      role: initialRole,
+      role: initialRole, // striktně user
       variable_symbol: newVS,
       first_name: regData.first_name.trim(),
       last_name: regData.last_name.trim(),
@@ -603,6 +605,10 @@ export default function App() {
     const { data: userProfile } = await supabase.from('participants').select('*').eq('email', verifyEmail).single();
 
     if (userProfile) {
+      // Ujistíme se, že má správnou roli
+      if (!isSuperAdmin(userProfile.email, userProfile.username) && userProfile.role !== 'admin') {
+        userProfile.role = 'user';
+      }
       const parsed = parsePhone(userProfile.phone);
       setCurrentUser(userProfile);
       setProfileForm({ 
@@ -681,7 +687,7 @@ export default function App() {
     }
   };
 
-  // Uložení profilu (nikdo si v profilu nemůže měnit roli, jméno, příjmení, datum narození ani VS)
+  // Uložení profilu
   async function handleSaveProfile() {
     if (profileForm.password && profileForm.password !== currentUser.pin) {
       const pwdErr = validatePasswordStrength(profileForm.password);
@@ -1204,7 +1210,6 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-              {/* TRVALE UZAMČENÁ POLE PRO KAŽDÉHO V JEHO PROFILU */}
               <div>
                 <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
                   Jméno <Lock size={12} />
@@ -1561,7 +1566,7 @@ export default function App() {
                       const pAtts = allAttendees.filter(a => a.participant_id === p.id);
                       return (
                         <tr key={p.id} className="hover:bg-slate-50">
-                          {/* ZMĚNA ROLE - POUZE ZDE MŮŽE ADMINISTRÁTOR ZMĚNIT ROLI ÚČASTNÍKA */}
+                          {/* ZDE: ZMĚNA ROLE POUZE ADMINISTRÁTOREM V TABULCE */}
                           <td className="p-2">
                             {isSuperAdmin(p.email, p.username) ? (
                               <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-purple-100 text-purple-800">
