@@ -89,7 +89,7 @@ const validatePasswordStrength = (pwd) => {
   return null;
 };
 
-// Pomocná funkce pro kontrolu, zda jde o trvalého administrátora
+// Kontrola, zda jde o hlavního správce akce
 const isSuperAdmin = (email, username) => {
   const e = (email || '').toLowerCase();
   const u = (username || '').toLowerCase();
@@ -420,7 +420,6 @@ export default function App() {
   useEffect(() => {
     loadSettings();
 
-    // Detekce odkazu pro obnovu hesla z e-mailu
     supabase.auth.onAuthStateChange(async (event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
         setAuthView('reset');
@@ -504,7 +503,7 @@ export default function App() {
     setAttendees(data || []);
   }
 
-  // 2. REGISTRACE
+  // 2. REGISTRACE (Každý nový uživatel dostane automaticky 'user')
   async function handleRegister(e) {
     e.preventDefault();
     setErrorMsg('');
@@ -550,7 +549,8 @@ export default function App() {
     }
 
     const fullName = `${regData.first_name.trim()} ${regData.last_name.trim()}`;
-    const initialRole = isSuperAdmin(cleanEmail, '') ? 'admin' : 'user';
+    // Automaticky role 'user', jedině kubik.horak má admin
+    const initialRole = cleanEmail === 'kubik.horak@gmail.com' ? 'admin' : 'user';
     const fullPhone = `${regData.phone_prefix} ${regData.phone_number.trim()}`;
 
     const { error: insertErr } = await supabase.from('participants').insert({
@@ -681,7 +681,7 @@ export default function App() {
     }
   };
 
-  // Uložení profilu
+  // Uložení profilu (nikdo si v profilu nemůže měnit roli, jméno, příjmení, datum narození ani VS)
   async function handleSaveProfile() {
     if (profileForm.password && profileForm.password !== currentUser.pin) {
       const pwdErr = validatePasswordStrength(profileForm.password);
@@ -693,7 +693,6 @@ export default function App() {
 
     const fullPhone = `${profileForm.phone_prefix || '+420'} ${(profileForm.phone_number || '').trim()}`.trim();
 
-    // Po registraci se jméno, příjmení, datum narození ani variabilní symbol nemění!
     const payload = {
       phone: fullPhone,
       email: profileForm.email || '',
@@ -703,11 +702,6 @@ export default function App() {
       photo_url: profileForm.photo_url || '',
       pin: profileForm.password ? profileForm.password.trim() : currentUser.pin
     };
-
-    // Role se u kubik.horak@gmail.com a spidys nikdy nemění
-    if (!isSuperAdmin(currentUser.email, currentUser.username) && currentUser.role === 'admin') {
-      payload.role = profileForm.role;
-    }
 
     await supabase.from('participants').update(payload).eq('id', currentUser.id);
     const updated = { ...currentUser, ...payload, phone: fullPhone };
@@ -951,7 +945,7 @@ export default function App() {
                   <input type="text" value={regData.zip} onChange={e => setRegData({...regData, zip: e.target.value})} className="w-full p-2.5 border rounded-xl" required />
                 </div>
 
-                {/* Telefon s mezinárodní předvolbou */}
+                {/* Telefon s předvolbou */}
                 <div className="col-span-2">
                   <label className="block text-slate-500 mb-1 font-semibold">Telefon *</label>
                   <div className="flex gap-2">
@@ -1190,7 +1184,7 @@ export default function App() {
         {activeScreen === 'profile' && (
           <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-100">
             <h2 className="text-lg font-bold text-slate-800 mb-1">Můj osobní profil</h2>
-            <p className="text-xs text-slate-400 mb-6">Šedivě označená pole (jméno, příjmení, datum narození a variabilní symbol) jsou trvale uzamčena.</p>
+            <p className="text-xs text-slate-400 mb-6">Šedivě označená pole (jméno, příjmení, datum narození, role a variabilní symbol) jsou v profilu trvale uzamčena.</p>
 
             <div className="flex items-center gap-6 mb-6 pb-6 border-b">
               <div className="w-20 h-20 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center border-2 border-blue-500 shadow-md flex-shrink-0">
@@ -1210,7 +1204,7 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-              {/* TRVALE UZAMČENÁ POLE PRO KAŽDÉHO */}
+              {/* TRVALE UZAMČENÁ POLE PRO KAŽDÉHO V JEHO PROFILU */}
               <div>
                 <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
                   Jméno <Lock size={12} />
@@ -1259,7 +1253,7 @@ export default function App() {
                 />
               </div>
 
-              {/* ROLE V SYSTÉMU - Pro kubik.horak@gmail.com a spidys NEMĚNNÁ */}
+              {/* ROLE V SYSTÉMU - V profilu vždy zablokovaná pro všechny */}
               <div className="col-span-2">
                 <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
                   Role v systému <Lock size={12} />
@@ -1272,18 +1266,16 @@ export default function App() {
                     className="w-full p-2.5 border rounded-xl bg-purple-50 text-purple-800 font-bold cursor-not-allowed"
                   />
                 ) : currentUser.role === 'admin' ? (
-                  <select
-                    value={profileForm.role}
-                    onChange={e => setProfileForm({...profileForm, role: e.target.value})}
-                    className="w-full p-2.5 border rounded-xl bg-white font-semibold"
-                  >
-                    <option value="user">Uživatel</option>
-                    <option value="admin">Administrátor</option>
-                  </select>
+                  <input
+                    type="text"
+                    value="Administrátor"
+                    disabled
+                    className="w-full p-2.5 border rounded-xl bg-purple-50 text-purple-700 font-semibold cursor-not-allowed"
+                  />
                 ) : (
                   <input
                     type="text"
-                    value={profileForm.role === 'admin' ? 'Administrátor' : 'Uživatel'}
+                    value="Uživatel (roli může změnit pouze administrátor)"
                     disabled
                     className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-500 font-medium cursor-not-allowed"
                   />
@@ -1569,12 +1561,28 @@ export default function App() {
                       const pAtts = allAttendees.filter(a => a.participant_id === p.id);
                       return (
                         <tr key={p.id} className="hover:bg-slate-50">
+                          {/* ZMĚNA ROLE - POUZE ZDE MŮŽE ADMINISTRÁTOR ZMĚNIT ROLI ÚČASTNÍKA */}
                           <td className="p-2">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                              p.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'
-                            }`}>
-                              {p.role === 'admin' ? 'Admin' : 'Uživatel'}
-                            </span>
+                            {isSuperAdmin(p.email, p.username) ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-purple-100 text-purple-800">
+                                Hlavní Admin
+                              </span>
+                            ) : (
+                              <select
+                                value={p.role || 'user'}
+                                onChange={async (e) => {
+                                  const newRole = e.target.value;
+                                  await supabase.from('participants').update({ role: newRole }).eq('id', p.id);
+                                  loadAllData();
+                                }}
+                                className={`px-2 py-0.5 rounded text-[11px] font-semibold border outline-none cursor-pointer ${
+                                  p.role === 'admin' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-slate-50 text-slate-700 border-slate-200'
+                                }`}
+                              >
+                                <option value="user">Uživatel</option>
+                                <option value="admin">Admin</option>
+                              </select>
+                            )}
                           </td>
                           <td className="p-2 font-mono font-bold text-slate-700">{p.variable_symbol}</td>
                           <td className="p-2 font-medium text-slate-900">{p.first_name} {p.last_name}</td>
