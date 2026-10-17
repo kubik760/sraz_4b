@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import QRCode from 'qrcode';
 import { 
@@ -30,7 +30,7 @@ const toIso = (d) => {
   return `${year}-${month}-${day}`;
 };
 
-// Pomocná funkce pro kompresi a zmenšení JPG fotografie přímo v prohlížeči
+// Komprese a úprava JPG fotografie
 const processJpgFile = (file) => {
   return new Promise((resolve, reject) => {
     if (file.type !== 'image/jpeg') {
@@ -353,21 +353,25 @@ function BirthDatePickerModal({ value, onChange }) {
 
 // --- HLAVNÍ APLIKACE ---
 export default function App() {
-  const [authView, setAuthView] = useState('login'); // 'login' | 'register' | 'verify'
+  const [authView, setAuthView] = useState('login'); // 'login' | 'register' | 'verify' | 'forgot' | 'reset'
   const [currentUser, setCurrentUser] = useState(null);
   const [settings, setSettings] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [infoMsg, setInfoMsg] = useState('');
 
-  // Navigace po přihlášení
+  // Navigace
   const [activeScreen, setActiveScreen] = useState('welcome'); // 'welcome' | 'profile' | 'trip' | 'admin'
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  // Přihlašovací údaje
-  const [loginUser, setLoginUser] = useState('');
+  // Přihlašovací stav (přihlašování přes e-mail)
+  const [loginEmail, setLoginEmail] = useState('');
   const [loginPin, setLoginPin] = useState('');
 
-  // Registrační formulář
+  // Reset hesla
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [newResetPassword, setNewResetPassword] = useState('');
+
+  // Registrační stav
   const [regData, setRegData] = useState({
     first_name: '',
     last_name: '',
@@ -377,14 +381,13 @@ export default function App() {
     zip: '',
     phone: '',
     email: '',
-    username: '',
     password: '',
     photo_url: ''
   });
   const [verifyEmail, setVerifyEmail] = useState('');
   const [otpPin, setOtpPin] = useState('');
 
-  // Data pro profil / výlet
+  // Profil & Výlet
   const [profileForm, setProfileForm] = useState({});
   const [attendees, setAttendees] = useState([]);
   const [newAttFirst, setNewAttFirst] = useState('');
@@ -392,15 +395,20 @@ export default function App() {
   const [newAttYear, setNewAttYear] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
 
-  // Admin data
+  // Admin
   const [allParticipants, setAllParticipants] = useState([]);
   const [allAttendees, setAllAttendees] = useState([]);
   const [adminForm, setAdminForm] = useState({});
-  const [editingParticipant, setEditingParticipant] = useState(null);
-  const [modalAttendees, setModalAttendees] = useState([]);
 
   useEffect(() => {
     loadSettings();
+
+    // Detekce odkazu pro obnovu hesla z e-mailu
+    supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setAuthView('reset');
+      }
+    });
   }, []);
 
   async function loadSettings() {
@@ -418,28 +426,31 @@ export default function App() {
     setAllAttendees(atts || []);
   }
 
-  // 1. PŘIHLÁŠENÍ
+  // 1. PŘIHLÁŠENÍ (E-mail + Heslo)
   async function handleLogin(e) {
     e.preventDefault();
     setErrorMsg('');
     setInfoMsg('');
 
+    const cleanEmail = loginEmail.trim().toLowerCase();
+
+    // Vyhledáme účastníka podle e-mailu a hesla
     const { data, error } = await supabase
       .from('participants')
       .select('*')
-      .eq('username', loginUser.trim().toLowerCase())
+      .eq('email', cleanEmail)
       .eq('pin', loginPin.trim())
       .single();
 
     if (error || !data) {
-      setErrorMsg('Neplatné uživatelské jméno nebo heslo.');
+      setErrorMsg('Neplatný e-mail nebo heslo.');
       return;
     }
 
     if (!data.is_verified) {
       setVerifyEmail(data.email);
       setAuthView('verify');
-      setInfoMsg('Účet ještě nebyl ověřen. Zadej PIN z e-mailu.');
+      setInfoMsg('Účet ještě nebyl ověřen. Zadejte PIN z vašeho e-mailu.');
       return;
     }
 
@@ -455,46 +466,46 @@ export default function App() {
     setAttendees(data || []);
   }
 
-  // 2. REGISTRACE (Zahájení a odeslání OTP)
+  // 2. REGISTRACE (Bez pole uživatelského jména)
   async function handleRegister(e) {
     e.preventDefault();
     setErrorMsg('');
 
-    // Validace povinných polí
-    const reqFields = ['first_name', 'last_name', 'birth_date', 'street', 'city', 'zip', 'phone', 'email', 'username', 'password'];
+    const reqFields = ['first_name', 'last_name', 'birth_date', 'street', 'city', 'zip', 'phone', 'email', 'password'];
     for (let f of reqFields) {
       if (!regData[f] || !regData[f].trim()) {
-        setErrorMsg('Všechna pole označená jako povinná musí být vyplněna.');
+        setErrorMsg('Všechna povinná pole musí být vyplněna.');
         return;
       }
     }
 
-    // Validace síly hesla
     const pwdErr = validatePasswordStrength(regData.password);
     if (pwdErr) {
       setErrorMsg(pwdErr);
       return;
     }
 
-    // Kontrola unikátnosti username
+    const cleanEmail = regData.email.trim().toLowerCase();
+
+    // Kontrola, zda e-mail už neexistuje
     const { data: existingUser } = await supabase
       .from('participants')
       .select('id')
-      .eq('username', regData.username.trim().toLowerCase())
+      .eq('email', cleanEmail)
       .single();
 
     if (existingUser) {
-      setErrorMsg('Toto uživatelské jméno je již obsazené.');
+      setErrorMsg('Účet s tímto e-mailem již existuje.');
       return;
     }
 
-    // Generování dalšího unikátního VS
+    // Vygenerujeme další VS
     const { data: vsData } = await supabase.rpc('get_next_variable_symbol');
     const newVS = vsData || (1000 + Math.floor(Math.random() * 8000)).toString();
 
-    // 1. Zaregistrujeme uživatele v Supabase Auth (pošle ověřovací e-mail s 6místným kódem)
+    // Supabase Auth registrace (pošle 6místný OTP PIN na e-mail)
     const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: regData.email.trim(),
+      email: cleanEmail,
       password: regData.password.trim()
     });
 
@@ -503,13 +514,12 @@ export default function App() {
       return;
     }
 
-    // 2. Uložíme profil do tabulky participants (zatím is_verified = false)
     const fullName = `${regData.first_name.trim()} ${regData.last_name.trim()}`;
-    const initialRole = regData.username.trim().toLowerCase() === 'spidys' ? 'admin' : 'user';
+    const initialRole = cleanEmail.includes('spidys') ? 'admin' : 'user';
 
     const { error: insertErr } = await supabase.from('participants').insert({
       auth_id: authData?.user?.id || null,
-      username: regData.username.trim().toLowerCase(),
+      username: cleanEmail,
       pin: regData.password.trim(),
       role: initialRole,
       variable_symbol: newVS,
@@ -521,42 +531,39 @@ export default function App() {
       city: regData.city.trim(),
       zip: regData.zip.trim(),
       phone: regData.phone.trim(),
-      email: regData.email.trim(),
+      email: cleanEmail,
       photo_url: regData.photo_url || '',
       is_verified: false
     });
 
     if (insertErr) {
-      setErrorMsg('Chyba při ukládání údajů: ' + insertErr.message);
+      setErrorMsg('Chyba při ukládání registrace: ' + insertErr.message);
       return;
     }
 
-    setVerifyEmail(regData.email.trim());
+    setVerifyEmail(cleanEmail);
     setAuthView('verify');
-    setInfoMsg(`Na adresu ${regData.email.trim()} byl odeslán 6místný ověřovací PIN.`);
+    setInfoMsg(`Na adresu ${cleanEmail} byl odeslán 6místný ověřovací PIN.`);
   }
 
-  // 3. OVĚŘENÍ PINu Z E-MAILU
+  // 3. OVĚŘENÍ PINu
   async function handleVerifyOtp(e) {
     e.preventDefault();
     setErrorMsg('');
     setInfoMsg('');
 
-    const { data, error } = await supabase.auth.verifyOtp({
+    const { error } = await supabase.auth.verifyOtp({
       email: verifyEmail,
       token: otpPin.trim(),
       type: 'signup'
     });
 
     if (error) {
-      setErrorMsg('Neplatný nebo vypršený ověřovací PIN.');
+      setErrorMsg('Neplatný nebo prošlý PIN.');
       return;
     }
 
-    // Označíme profil jako ověřený
     await supabase.from('participants').update({ is_verified: true }).eq('email', verifyEmail);
-
-    // Načteme uživatele a rovnou ho přihlásíme
     const { data: userProfile } = await supabase.from('participants').select('*').eq('email', verifyEmail).single();
 
     if (userProfile) {
@@ -572,24 +579,69 @@ export default function App() {
     }
   }
 
-  // Zpracování nahrání JPG fotky v registraci i v profilu
+  // 4. ŽÁDOST O RESET HESLA
+  async function handleForgotPassword(e) {
+    e.preventDefault();
+    setErrorMsg('');
+    setInfoMsg('');
+
+    const cleanEmail = forgotEmail.trim().toLowerCase();
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+      redirectTo: window.location.origin
+    });
+
+    if (error) {
+      setErrorMsg('Chyba při odesílání: ' + error.message);
+      return;
+    }
+
+    setInfoMsg(`Odkaz pro nastavení nového hesla byl odeslán na ${cleanEmail}. Zkontrolujte si příchozí poštu.`);
+  }
+
+  // 5. NASTAVENÍ NOVÉHO HESLA (PO PROKLIKU Z E-MAILU)
+  async function handleUpdatePassword(e) {
+    e.preventDefault();
+    setErrorMsg('');
+
+    const pwdErr = validatePasswordStrength(newResetPassword);
+    if (pwdErr) {
+      setErrorMsg(pwdErr);
+      return;
+    }
+
+    const { data: authUser, error: authErr } = await supabase.auth.updateUser({
+      password: newResetPassword.trim()
+    });
+
+    if (authErr) {
+      setErrorMsg('Chyba při změně hesla: ' + authErr.message);
+      return;
+    }
+
+    // Aktualizujeme heslo i v naší tabulce participants
+    if (authUser?.user?.email) {
+      await supabase.from('participants').update({ pin: newResetPassword.trim() }).eq('email', authUser.user.email);
+    }
+
+    alert('Vaše heslo bylo úspěšně změněno! Nyní se můžete přihlásit.');
+    setAuthView('login');
+  }
+
+  // Zpracování fotky
   const handlePhotoUpload = async (e, target) => {
     const file = e.target.files[0];
     if (!file) return;
 
     try {
       const base64Jpg = await processJpgFile(file);
-      if (target === 'register') {
-        setRegData({ ...regData, photo_url: base64Jpg });
-      } else if (target === 'profile') {
-        setProfileForm({ ...profileForm, photo_url: base64Jpg });
-      }
+      if (target === 'register') setRegData({ ...regData, photo_url: base64Jpg });
+      else if (target === 'profile') setProfileForm({ ...profileForm, photo_url: base64Jpg });
     } catch (err) {
       alert(err.message);
     }
   };
 
-  // Uložení profilu uživatelem (může editovat pouze povolené věci)
+  // Uložení profilu
   async function handleSaveProfile() {
     if (profileForm.password && profileForm.password !== currentUser.pin) {
       const pwdErr = validatePasswordStrength(profileForm.password);
@@ -609,19 +661,17 @@ export default function App() {
       pin: profileForm.password ? profileForm.password.trim() : currentUser.pin
     };
 
-    // Pokud je administrátor, může měnit i ostatní pole kromě spidys
     if (currentUser.role === 'admin') {
       payload.first_name = profileForm.first_name;
       payload.last_name = profileForm.last_name;
       payload.birth_date = profileForm.birth_date;
       payload.full_name = `${profileForm.first_name} ${profileForm.last_name}`.trim();
-      if (currentUser.username !== 'spidys') {
+      if (currentUser.username !== 'spidys' && !currentUser.email.includes('spidys')) {
         payload.role = profileForm.role;
       }
     }
 
     await supabase.from('participants').update(payload).eq('id', currentUser.id);
-
     const updated = { ...currentUser, ...payload };
     setCurrentUser(updated);
     setProfileForm(updated);
@@ -629,7 +679,7 @@ export default function App() {
     alert('Profil byl v pořádku aktualizován.');
   }
 
-  // Výpočet ceny pro zadaný seznam lidí
+  // Výpočet ceny
   const calculatePricingFor = (attList, petType, transportType) => {
     if (!settings) return { total: 0, deposit: 0 };
     let total = 0;
@@ -658,7 +708,7 @@ export default function App() {
       if (deposit > 0 && settings.iban) {
         const cleanIban = settings.iban.replace(/\s+/g, '').toUpperCase();
         const vs = currentUser.variable_symbol;
-        const displayName = `${currentUser.first_name || currentUser.full_name || currentUser.username}`;
+        const displayName = `${currentUser.first_name || currentUser.full_name || currentUser.email}`;
         const cleanMsg = `Zaloha vylet ${displayName}`.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
         const spayd = `SPD*1.0*ACC:${cleanIban}*AM:${deposit.toFixed(2)}*CC:CZK*X-VS:${vs}*MSG:${cleanMsg}`;
 
@@ -671,7 +721,7 @@ export default function App() {
     }
   }, [currentUser, attendees, profileForm.pet_type, profileForm.transport_type, settings]);
 
-  // --- RENDEROVÁNÍ: AUTENTIZACE ---
+  // --- 1. AUTENTIZAČNÍ OBRAZOVKY ---
   if (!currentUser) {
     return (
       <div className="flex items-center justify-center min-h-screen px-4 bg-slate-50 py-12">
@@ -682,6 +732,8 @@ export default function App() {
               {authView === 'login' && 'Přihlášení ke svému účtu'}
               {authView === 'register' && 'Nová registrace účastníka'}
               {authView === 'verify' && 'Ověření e-mailu pomocí PINu'}
+              {authView === 'forgot' && 'Obnova zapomenutého hesla'}
+              {authView === 'reset' && 'Nastavení nového hesla'}
             </p>
           </div>
 
@@ -697,22 +749,31 @@ export default function App() {
             </div>
           )}
 
-          {/* 1. FORMULÁŘ: PŘIHLÁŠENÍ */}
+          {/* A. PŘIHLÁŠENÍ (E-mail + Heslo) */}
           {authView === 'login' && (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Uživatelské jméno</label>
+                <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">E-mail</label>
                 <input
-                  type="text"
-                  value={loginUser}
-                  onChange={e => setLoginUser(e.target.value)}
-                  placeholder="např. novak"
+                  type="email"
+                  value={loginEmail}
+                  onChange={e => setLoginEmail(e.target.value)}
+                  placeholder="vas@email.cz"
                   className="w-full px-4 py-2.5 border rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
               </div>
               <div>
-                <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Heslo</label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-xs font-semibold text-slate-600 uppercase">Heslo</label>
+                  <button
+                    type="button"
+                    onClick={() => { setAuthView('forgot'); setErrorMsg(''); setInfoMsg(''); }}
+                    className="text-xs text-blue-600 hover:underline font-medium"
+                  >
+                    Zapomněl(a) jsem heslo
+                  </button>
+                </div>
                 <input
                   type="password"
                   value={loginPin}
@@ -744,10 +805,71 @@ export default function App() {
             </form>
           )}
 
-          {/* 2. FORMULÁŘ: REGISTRACE */}
+          {/* B. ZAPOMENUTÉ HESLO */}
+          {authView === 'forgot' && (
+            <form onSubmit={handleForgotPassword} className="space-y-4">
+              <p className="text-xs text-slate-600">
+                Zadejte svůj e-mail, kterým se přihlašujete. Pošleme vám odkaz pro nastavení nového hesla.
+              </p>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Váš E-mail</label>
+                <input
+                  type="email"
+                  value={forgotEmail}
+                  onChange={e => setForgotEmail(e.target.value)}
+                  placeholder="vas@email.cz"
+                  className="w-full px-4 py-2.5 border rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-2xl transition shadow-md text-sm"
+              >
+                Odeslat odkaz na e-mail
+              </button>
+              <div className="text-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => { setAuthView('login'); setErrorMsg(''); setInfoMsg(''); }}
+                  className="text-xs text-slate-400 hover:underline"
+                >
+                  Zpět na přihlášení
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* C. NASTAVENÍ NOVÉHO HESLA (PO PROKLIKU) */}
+          {authView === 'reset' && (
+            <form onSubmit={handleUpdatePassword} className="space-y-4">
+              <p className="text-xs text-slate-600">
+                Zadejte své nové silné heslo (min. 8 znaků, velká/malá písmena, číslo a speciální znak).
+              </p>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">Nové heslo</label>
+                <input
+                  type="password"
+                  value={newResetPassword}
+                  onChange={e => setNewResetPassword(e.target.value)}
+                  placeholder="Zadejte nové heslo"
+                  className="w-full px-4 py-2.5 border rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-2xl transition shadow-md text-sm"
+              >
+                Uložit nové heslo a přihlásit se
+              </button>
+            </form>
+          )}
+
+          {/* D. REGISTRACE (BEZ POLE UŽIVATELSKÉ JMÉNO) */}
           {authView === 'register' && (
             <form onSubmit={handleRegister} className="space-y-4">
-              {/* Fotografie (volitelná, pouze JPG) */}
+              {/* Fotka (volitelná, JPG) */}
               <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-2xl border border-slate-100">
                 <div className="w-16 h-16 rounded-full bg-slate-200 overflow-hidden flex items-center justify-center border-2 border-white shadow-sm flex-shrink-0">
                   {regData.photo_url ? (
@@ -758,7 +880,7 @@ export default function App() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700">Profilová fotografie</label>
-                  <span className="text-[10px] text-slate-400 block mb-1">Pouze formát JPG (bude automaticky zmenšena)</span>
+                  <span className="text-[10px] text-slate-400 block mb-1">Pouze JPG (automatické zmenšení)</span>
                   <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-700 cursor-pointer hover:bg-slate-50">
                     <Camera size={14} /> Vybrat JPG
                     <input type="file" accept="image/jpeg" onChange={e => handlePhotoUpload(e, 'register')} className="hidden" />
@@ -796,16 +918,12 @@ export default function App() {
                   <input type="tel" value={regData.phone} onChange={e => setRegData({...regData, phone: e.target.value})} placeholder="+420..." className="w-full p-2.5 border rounded-xl" required />
                 </div>
                 <div>
-                  <label className="block text-slate-500 mb-1 font-semibold">E-mail *</label>
-                  <input type="email" value={regData.email} onChange={e => setRegData({...regData, email: e.target.value})} className="w-full p-2.5 border rounded-xl" required />
+                  <label className="block text-slate-500 mb-1 font-semibold">E-mail (váš login) *</label>
+                  <input type="email" value={regData.email} onChange={e => setRegData({...regData, email: e.target.value})} placeholder="vas@email.cz" className="w-full p-2.5 border rounded-xl" required />
                 </div>
-                <div>
-                  <label className="block text-slate-500 mb-1 font-semibold">Uživatelské jméno *</label>
-                  <input type="text" value={regData.username} onChange={e => setRegData({...regData, username: e.target.value})} className="w-full p-2.5 border rounded-xl" required />
-                </div>
-                <div>
+                <div className="col-span-2">
                   <label className="block text-slate-500 mb-1 font-semibold">Silné heslo *</label>
-                  <input type="password" value={regData.password} onChange={e => setRegData({...regData, password: e.target.value})} placeholder="Min. 8 znaků, A-Z, 0-9, znak" className="w-full p-2.5 border rounded-xl" required />
+                  <input type="password" value={regData.password} onChange={e => setRegData({...regData, password: e.target.value})} placeholder="Min. 8 znaků, A-Z, a-z, 0-9, znak" className="w-full p-2.5 border rounded-xl" required />
                 </div>
               </div>
 
@@ -830,13 +948,12 @@ export default function App() {
             </form>
           )}
 
-          {/* 3. FORMULÁŘ: OVĚŘENÍ PINu */}
+          {/* E. OVĚŘENÍ PINu */}
           {authView === 'verify' && (
             <form onSubmit={handleVerifyOtp} className="space-y-4">
               <p className="text-xs text-slate-600 text-center">
-                Zadejte 6místný kód, který byl zaslán na e-mail: <strong className="text-slate-800">{verifyEmail}</strong>
+                Zadejte 6místný kód, který byl zaslán na: <strong className="text-slate-800">{verifyEmail}</strong>
               </p>
-
               <div>
                 <label className="block text-xs font-semibold text-slate-600 uppercase mb-1 text-center">Ověřovací PIN</label>
                 <input
@@ -849,14 +966,12 @@ export default function App() {
                   required
                 />
               </div>
-
               <button
                 type="submit"
                 className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-2xl transition shadow-md text-sm"
               >
                 Ověřit a vstoupit
               </button>
-
               <div className="text-center pt-2">
                 <button
                   type="button"
@@ -873,7 +988,7 @@ export default function App() {
     );
   }
 
-  // --- RENDEROVÁNÍ: PŘIHLÁŠENÝ UŽIVATEL / ADMIN ---
+  // --- 2. PŘIHLÁŠENÉ ROZHRANÍ (S HAMBURGER MENU) ---
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
       {/* HORNÍ LIŠTA */}
@@ -887,7 +1002,6 @@ export default function App() {
           </span>
         </div>
 
-        {/* Tlačítko Hamburger Menu (tři čárky) */}
         <button
           onClick={() => setIsMenuOpen(true)}
           className="p-2 hover:bg-slate-100 rounded-xl text-slate-700 transition"
@@ -897,7 +1011,7 @@ export default function App() {
         </button>
       </header>
 
-      {/* BOČNÍ VYSUVNÉ MENU */}
+      {/* BOČNÍ MENU */}
       {isMenuOpen && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => setIsMenuOpen(false)} />
@@ -942,7 +1056,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* DOLE V MENU: PROFILOVÁ KARTA A ODHLÁŠENÍ */}
+            {/* DOLE V MENU: PROFILOVÁ KARTA */}
             <div className="border-t pt-4">
               <div 
                 onClick={() => { setActiveScreen('profile'); setIsMenuOpen(false); }}
@@ -972,13 +1086,13 @@ export default function App() {
         </div>
       )}
 
-      {/* HLAVNÍ OBSAHOVÁ OBLAST PODLE ZVOLENÉ OBRAZOVKY */}
+      {/* OBSAH OBRAZOVKY */}
       <main className="max-w-4xl mx-auto p-4 sm:p-6 pb-24">
-        {/* 1. OBRAZOVKA: VÍTEJTE */}
+        {/* 1. UVÍTÁNÍ */}
         {activeScreen === 'welcome' && (
           <div className="space-y-6">
             <div className="bg-gradient-to-br from-blue-600 to-indigo-700 text-white rounded-3xl p-6 sm:p-8 shadow-md">
-              <h2 className="text-2xl font-bold mb-2">Vítej, {currentUser.first_name || currentUser.username}! 👋</h2>
+              <h2 className="text-2xl font-bold mb-2">Vítej, {currentUser.first_name}! 👋</h2>
               <p className="text-sm text-blue-100 mb-6">
                 Vítej v klientském portálu společného výletu. Tady najdeš veškeré informace o akci, možnost přihlásit další členy rodiny, platební údaje i přehled ostatních účastníků.
               </p>
@@ -1012,11 +1126,11 @@ export default function App() {
           </div>
         )}
 
-        {/* 2. OBRAZOVKA: OSOBNÍ KARTA / PROFIL */}
+        {/* 2. OSOBNÍ PROFIL */}
         {activeScreen === 'profile' && (
           <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-100">
             <h2 className="text-lg font-bold text-slate-800 mb-1">Můj osobní profil</h2>
-            <p className="text-xs text-slate-400 mb-6">Údaje označené šedě jsou uzamčeny a může je měnit pouze organizátor akce.</p>
+            <p className="text-xs text-slate-400 mb-6">Šedivě označená pole jsou uzamčena a může je měnit pouze organizátor akce.</p>
 
             <div className="flex items-center gap-6 mb-6 pb-6 border-b">
               <div className="w-20 h-20 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center border-2 border-blue-500 shadow-md flex-shrink-0">
@@ -1031,12 +1145,11 @@ export default function App() {
                   <Camera size={15} /> Nahrát novou fotku (JPG)
                   <input type="file" accept="image/jpeg" onChange={e => handlePhotoUpload(e, 'profile')} className="hidden" />
                 </label>
-                <p className="text-[10px] text-slate-400 mt-1">Pouze JPG formát, automaticky se upraví na rozumnou velikost.</p>
+                <p className="text-[10px] text-slate-400 mt-1">Pouze formát JPG, velikost se optimalizuje automaticky.</p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-              {/* Uzamčená pole pro běžného uživatele */}
               <div>
                 <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
                   Jméno <Lock size={12} />
@@ -1081,18 +1194,6 @@ export default function App() {
 
               <div>
                 <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
-                  Uživatelské jméno <Lock size={12} />
-                </label>
-                <input
-                  type="text"
-                  value={profileForm.username || ''}
-                  disabled
-                  className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-500 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
                   Variabilní symbol (trvalý) <Lock size={12} />
                 </label>
                 <input
@@ -1103,11 +1204,11 @@ export default function App() {
                 />
               </div>
 
-              <div>
+              <div className="col-span-2">
                 <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
                   Role v systému <Lock size={12} />
                 </label>
-                {currentUser.username === 'spidys' ? (
+                {currentUser.email.includes('spidys') ? (
                   <input
                     type="text"
                     value="Hlavní administrátor (systémově neměnné)"
@@ -1133,7 +1234,6 @@ export default function App() {
                 )}
               </div>
 
-              {/* Editovatelná pole uživatelem */}
               <div className="col-span-2 pt-3 border-t">
                 <span className="font-bold text-slate-700">Kontaktní údaje a adresa (můžete upravovat):</span>
               </div>
@@ -1149,7 +1249,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-slate-600 mb-1 font-semibold">E-mail</label>
+                <label className="block text-slate-600 mb-1 font-semibold">E-mail (přihlašovací jméno)</label>
                 <input
                   type="email"
                   value={profileForm.email || ''}
@@ -1212,10 +1312,9 @@ export default function App() {
           </div>
         )}
 
-        {/* 3. OBRAZOVKA: SPOLČNÝ VÝLET & ÚČASTNÍCI */}
+        {/* 3. VÝLET A REGISTRACE */}
         {activeScreen === 'trip' && (
           <div className="space-y-6">
-            {/* Stav zálohy */}
             <div className={`p-4 rounded-2xl border flex items-center gap-3 ${
               currentUser.deposit_paid ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-800'
             }`}>
@@ -1228,7 +1327,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Doprovod */}
             <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
               <h3 className="font-bold text-slate-800 text-sm mb-3 flex items-center gap-2">
                 <Users size={18} /> Osoby jedoucí se mnou ({attendees.length})
@@ -1282,7 +1380,6 @@ export default function App() {
               </form>
             </div>
 
-            {/* Zvíře a Doprava */}
             <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
               <h3 className="font-bold text-slate-800 text-sm mb-3">Zvíře a Doprava</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -1353,7 +1450,6 @@ export default function App() {
               );
             })()}
 
-            {/* Seznam všech přihlášených účastníků pro inspiraci */}
             <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
               <h3 className="font-bold text-slate-800 text-sm mb-3">Seznam přihlášených účastníků ({allParticipants.length})</h3>
               <div className="divide-y divide-slate-100">
@@ -1380,10 +1476,9 @@ export default function App() {
           </div>
         )}
 
-        {/* 4. OBRAZOVKA: SPRÁVA AKCE (ADMIN) */}
+        {/* 4. SPRÁVA AKCE (ADMIN) */}
         {activeScreen === 'admin' && currentUser.role === 'admin' && (
           <div className="space-y-6">
-            {/* Přehled účastníků */}
             <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
               <h3 className="font-bold text-slate-800 text-sm mb-4">Správa všech účastníků ({allParticipants.length})</h3>
               <div className="overflow-x-auto">
@@ -1393,7 +1488,7 @@ export default function App() {
                       <th className="p-2">Role</th>
                       <th className="p-2">VS</th>
                       <th className="p-2">Jméno</th>
-                      <th className="p-2">Login</th>
+                      <th className="p-2">E-mail</th>
                       <th className="p-2">Osob</th>
                       <th className="p-2">Cena</th>
                       <th className="p-2">Stav</th>
@@ -1413,7 +1508,7 @@ export default function App() {
                           </td>
                           <td className="p-2 font-mono font-bold text-slate-700">{p.variable_symbol}</td>
                           <td className="p-2 font-medium text-slate-900">{p.first_name} {p.last_name}</td>
-                          <td className="p-2 font-mono text-slate-500">{p.username}</td>
+                          <td className="p-2 font-mono text-slate-500">{p.email}</td>
                           <td className="p-2">{pAtts.length} os.</td>
                           <td className="p-2 font-bold text-slate-800">{p.total_price || 0} Kč</td>
                           <td className="p-2">
@@ -1437,14 +1532,13 @@ export default function App() {
               </div>
             </div>
 
-            {/* Globální nastavení akce */}
             <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
-              <h3 className="font-bold text-slate-800 text-sm mb-4">Globální nastavení termínu a banky</h3>
+              <h3 className="font-bold text-slate-800 text-sm mb-4">Globální nastavení akce a banky</h3>
               <form onSubmit={async (e) => {
                 e.preventDefault();
                 await supabase.from('event_settings').update(adminForm).eq('id', 1);
                 setSettings(adminForm);
-                alert('Nastavení uloženo!');
+                alert('Nastavení akce uloženo!');
               }} className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
                 <div>
                   <label className="block text-slate-500 mb-1 font-semibold">Název akce</label>
