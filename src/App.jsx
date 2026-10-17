@@ -4,7 +4,8 @@ import QRCode from 'qrcode';
 import { 
   Users, Calendar, MapPin, CreditCard, ShieldCheck, 
   Plus, Trash2, LogOut, Settings, CheckCircle2, AlertCircle, Edit, UserPlus, X,
-  ChevronLeft, ChevronRight, Check, KeyRound, Lock, Eye, Menu, Camera, User, Home
+  ChevronLeft, ChevronRight, Check, KeyRound, Lock, Eye, Menu, Camera, User, Home,
+  Search, ArrowUpDown, ArrowUp, ArrowDown
 } from 'lucide-react';
 
 const SUPABASE_URL = 'https://pyxdzptkuaqumuocaknw.supabase.co';
@@ -39,7 +40,6 @@ const toIso = (d) => {
   return `${year}-${month}-${day}`;
 };
 
-// Komprese a úprava JPG fotografie
 const processJpgFile = (file) => {
   return new Promise((resolve, reject) => {
     if (file.type !== 'image/jpeg') {
@@ -79,7 +79,6 @@ const processJpgFile = (file) => {
   });
 };
 
-// Validace síly hesla
 const validatePasswordStrength = (pwd) => {
   if (pwd.length < 8) return 'Heslo musí mít alespoň 8 znaků.';
   if (!/[A-Z]/.test(pwd)) return 'Heslo musí obsahovat alespoň jedno velké písmeno.';
@@ -89,7 +88,6 @@ const validatePasswordStrength = (pwd) => {
   return null;
 };
 
-// Kontrola, zda jde o hlavního správce akce
 const isSuperAdmin = (email, username) => {
   const e = (email || '').toLowerCase().trim();
   const u = (username || '').toLowerCase().trim();
@@ -369,17 +367,17 @@ function BirthDatePickerModal({ value, onChange }) {
 
 // --- HLAVNÍ APLIKACE ---
 export default function App() {
-  const [authView, setAuthView] = useState('login'); // 'login' | 'register' | 'verify' | 'forgot' | 'reset'
+  const [authView, setAuthView] = useState('login');
   const [currentUser, setCurrentUser] = useState(null);
   const [settings, setSettings] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [infoMsg, setInfoMsg] = useState('');
 
-  // Navigace
-  const [activeScreen, setActiveScreen] = useState('welcome'); // 'welcome' | 'profile' | 'trip' | 'admin'
+  // Navigace ('welcome', 'profile', 'trip', 'users')
+  const [activeScreen, setActiveScreen] = useState('welcome');
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  // Přihlašovací stav (E-mail + Heslo)
+  // Přihlašovací stav
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPin, setLoginPin] = useState('');
 
@@ -412,10 +410,16 @@ export default function App() {
   const [newAttYear, setNewAttYear] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
 
-  // Admin
+  // Správa uživatelů & Admin
   const [allParticipants, setAllParticipants] = useState([]);
   const [allAttendees, setAllAttendees] = useState([]);
   const [adminForm, setAdminForm] = useState({});
+
+  // Filtrování a řazení v sekci Správa uživatelů
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortField, setSortField] = useState('last_name'); // 'first_name' | 'last_name'
+  const [sortOrder, setSortOrder] = useState('asc'); // 'asc' | 'desc'
+  const [editingUserModal, setEditingUserModal] = useState(null); // uživatel otevíraný v editačním okně admina
 
   useEffect(() => {
     loadSettings();
@@ -452,7 +456,7 @@ export default function App() {
     return { prefix: '+420', number: fullPhone };
   };
 
-  // 1. PŘIHLÁŠENÍ (E-mail + Heslo)
+  // 1. PŘIHLÁŠENÍ
   async function handleLogin(e) {
     e.preventDefault();
     setErrorMsg('');
@@ -479,11 +483,9 @@ export default function App() {
       return;
     }
 
-    // Striktní kontrola role: Pouze kubik.horak@gmail.com je automaticky admin
     if (isSuperAdmin(data.email, data.username)) {
       data.role = 'admin';
     } else {
-      // Pokud to není superadmin a v DB měl náhodou admin, zkontrolujeme načtenou hodnotu
       data.role = data.role === 'admin' ? 'admin' : 'user';
     }
 
@@ -504,7 +506,7 @@ export default function App() {
     setAttendees(data || []);
   }
 
-  // 2. REGISTRACE (Každý nový uživatel dostane VŽDY 'user')
+  // 2. REGISTRACE
   async function handleRegister(e) {
     e.preventDefault();
     setErrorMsg('');
@@ -550,8 +552,6 @@ export default function App() {
     }
 
     const fullName = `${regData.first_name.trim()} ${regData.last_name.trim()}`;
-    
-    // ZDE: Nový uživatel je VŽDY 'user', jedině kubik.horak@gmail.com je admin
     const initialRole = cleanEmail === 'kubik.horak@gmail.com' ? 'admin' : 'user';
     const fullPhone = `${regData.phone_prefix} ${regData.phone_number.trim()}`;
 
@@ -559,7 +559,7 @@ export default function App() {
       auth_id: authData?.user?.id || null,
       username: cleanEmail,
       pin: regData.password.trim(),
-      role: initialRole, // striktně user
+      role: initialRole,
       variable_symbol: newVS,
       first_name: regData.first_name.trim(),
       last_name: regData.last_name.trim(),
@@ -605,7 +605,6 @@ export default function App() {
     const { data: userProfile } = await supabase.from('participants').select('*').eq('email', verifyEmail).single();
 
     if (userProfile) {
-      // Ujistíme se, že má správnou roli
       if (!isSuperAdmin(userProfile.email, userProfile.username) && userProfile.role !== 'admin') {
         userProfile.role = 'user';
       }
@@ -673,7 +672,7 @@ export default function App() {
     setAuthView('login');
   }
 
-  // Fotka
+  // Nahrání fotky
   const handlePhotoUpload = async (e, target) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -682,12 +681,13 @@ export default function App() {
       const base64Jpg = await processJpgFile(file);
       if (target === 'register') setRegData({ ...regData, photo_url: base64Jpg });
       else if (target === 'profile') setProfileForm({ ...profileForm, photo_url: base64Jpg });
+      else if (target === 'adminModal') setEditingUserModal({ ...editingUserModal, photo_url: base64Jpg });
     } catch (err) {
       alert(err.message);
     }
   };
 
-  // Uložení profilu
+  // Uložení vlastního profilu
   async function handleSaveProfile() {
     if (profileForm.password && profileForm.password !== currentUser.pin) {
       const pwdErr = validatePasswordStrength(profileForm.password);
@@ -715,6 +715,47 @@ export default function App() {
     setProfileForm({ ...updated, phone_prefix: profileForm.phone_prefix, phone_number: profileForm.phone_number });
     loadAllData();
     alert('Profil byl v pořádku aktualizován.');
+  }
+
+  // Uložení uživatele administrátorem (Admin může měnit vše KROMĚ variabilního symbolu)
+  async function handleAdminSaveUser(e) {
+    e.preventDefault();
+    const u = editingUserModal;
+
+    const payload = {
+      first_name: u.first_name || '',
+      last_name: u.last_name || '',
+      full_name: `${u.first_name || ''} ${u.last_name || ''}`.trim(),
+      birth_date: u.birth_date || '',
+      phone: u.phone || '',
+      email: (u.email || '').toLowerCase().trim(),
+      street: u.street || '',
+      city: u.city || '',
+      zip: u.zip || '',
+      photo_url: u.photo_url || '',
+      pin: u.pin || '',
+      deposit_paid: !!u.deposit_paid
+    };
+
+    // Role: Pokud to není superadmin, může admin roli změnit
+    if (!isSuperAdmin(u.email, u.username)) {
+      payload.role = u.role || 'user';
+    }
+
+    const { error } = await supabase.from('participants').update(payload).eq('id', u.id);
+    if (error) {
+      alert('Chyba při ukládání: ' + error.message);
+      return;
+    }
+
+    // Pokud admin editoval sám sebe, aktualizujeme i currentUser
+    if (currentUser.id === u.id) {
+      setCurrentUser({ ...currentUser, ...payload });
+    }
+
+    setEditingUserModal(null);
+    loadAllData();
+    alert('Údaje uživatele byly úspěšně uloženy.');
   }
 
   // Výpočet ceny
@@ -758,6 +799,33 @@ export default function App() {
       }
     }
   }, [currentUser, attendees, profileForm.pet_type, profileForm.transport_type, settings]);
+
+  // Logika filtrování a třídění uživatelů pro admina
+  const filteredUsers = allParticipants
+    .filter(p => {
+      const q = searchQuery.toLowerCase().trim();
+      if (!q) return true;
+      const fn = (p.first_name || '').toLowerCase();
+      const ln = (p.last_name || '').toLowerCase();
+      const em = (p.email || '').toLowerCase();
+      return fn.includes(q) || ln.includes(q) || em.includes(q);
+    })
+    .sort((a, b) => {
+      const fieldA = (a[sortField] || '').toLowerCase();
+      const fieldB = (b[sortField] || '').toLowerCase();
+      if (fieldA < fieldB) return sortOrder === 'asc' ? -1 : 1;
+      if (fieldA > fieldB) return sortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+  const toggleSort = (field) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
 
   // --- 1. AUTENTIZACE ---
   if (!currentUser) {
@@ -951,7 +1019,6 @@ export default function App() {
                   <input type="text" value={regData.zip} onChange={e => setRegData({...regData, zip: e.target.value})} className="w-full p-2.5 border rounded-xl" required />
                 </div>
 
-                {/* Telefon s předvolbou */}
                 <div className="col-span-2">
                   <label className="block text-slate-500 mb-1 font-semibold">Telefon *</label>
                   <div className="flex gap-2">
@@ -1103,14 +1170,15 @@ export default function App() {
                   <Users size={18} /> Společný výlet & Účastníci
                 </button>
 
+                {/* ZDE: PŘEJMENOVÁNO NA "Správa uživatelů" A PŘÍSTUPNÉ POUZE PRO ADMINA */}
                 {currentUser.role === 'admin' && (
                   <button
-                    onClick={() => { setActiveScreen('admin'); setIsMenuOpen(false); }}
+                    onClick={() => { setActiveScreen('users'); setIsMenuOpen(false); }}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition ${
-                      activeScreen === 'admin' ? 'bg-purple-50 text-purple-700' : 'hover:bg-slate-50 text-slate-700'
+                      activeScreen === 'users' ? 'bg-purple-50 text-purple-700' : 'hover:bg-slate-50 text-slate-700'
                     }`}
                   >
-                    <Settings size={18} /> Správa akce (Admin)
+                    <ShieldCheck size={18} /> Správa uživatelů
                   </button>
                 )}
               </div>
@@ -1147,7 +1215,7 @@ export default function App() {
       )}
 
       {/* OBSAH OBRAZOVKY */}
-      <main className="max-w-4xl mx-auto p-4 sm:p-6 pb-24">
+      <main className="max-w-5xl mx-auto p-4 sm:p-6 pb-24">
         {/* 1. UVÍTÁNÍ */}
         {activeScreen === 'welcome' && (
           <div className="space-y-6">
@@ -1258,7 +1326,6 @@ export default function App() {
                 />
               </div>
 
-              {/* ROLE V SYSTÉMU - V profilu vždy zablokovaná pro všechny */}
               <div className="col-span-2">
                 <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
                   Role v systému <Lock size={12} />
@@ -1287,12 +1354,10 @@ export default function App() {
                 )}
               </div>
 
-              {/* EDITOVATELNÉ KONTAKTNÍ ÚDAJE */}
               <div className="col-span-2 pt-3 border-t">
                 <span className="font-bold text-slate-700">Kontaktní údaje a adresa (můžete upravovat):</span>
               </div>
 
-              {/* Telefon s předvolbou */}
               <div className="col-span-2 sm:col-span-1">
                 <label className="block text-slate-600 mb-1 font-semibold">Telefon</label>
                 <div className="flex gap-2">
@@ -1477,7 +1542,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Vyúčtování a QR platba */}
             {(() => {
               const { total, deposit } = calculatePricingFor(attendees, profileForm.pet_type, profileForm.transport_type);
               return (
@@ -1543,78 +1607,128 @@ export default function App() {
           </div>
         )}
 
-        {/* 4. SPRÁVA AKCE (ADMIN) */}
-        {activeScreen === 'admin' && currentUser.role === 'admin' && (
+        {/* 4. SPRÁVA UŽIVATELŮ (POUZE PRO ADMINA) */}
+        {activeScreen === 'users' && currentUser.role === 'admin' && (
           <div className="space-y-6">
             <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
-              <h3 className="font-bold text-slate-800 text-sm mb-4">Správa všech účastníků ({allParticipants.length})</h3>
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
+                <div>
+                  <h3 className="font-bold text-slate-800 text-base">Správa uživatelů ({filteredUsers.length})</h3>
+                  <p className="text-xs text-slate-400">Přehled, vyhledávání a kompletní editace všech registrovaných účastníků.</p>
+                </div>
+
+                {/* Vyhledávací pole */}
+                <div className="relative w-full sm:w-64">
+                  <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    placeholder="Hledat podle jména, e-mailu..."
+                    className="w-full pl-9 pr-4 py-2 border rounded-xl text-xs bg-slate-50 outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  {searchQuery && (
+                    <button onClick={() => setSearchQuery('')} className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600">
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Tlačítka pro rychlé řazení */}
+              <div className="flex items-center gap-2 mb-4 text-xs font-semibold text-slate-600">
+                <span className="text-slate-400 text-[11px]">Řadit podle:</span>
+                <button
+                  onClick={() => toggleSort('last_name')}
+                  className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition ${
+                    sortField === 'last_name' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white hover:bg-slate-50'
+                  }`}
+                >
+                  Příjmení
+                  {sortField === 'last_name' && (sortOrder === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} />)}
+                </button>
+                <button
+                  onClick={() => toggleSort('first_name')}
+                  className={`px-3 py-1.5 rounded-xl border flex items-center gap-1.5 transition ${
+                    sortField === 'first_name' ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white hover:bg-slate-50'
+                  }`}
+                >
+                  Jméno
+                  {sortField === 'first_name' && (sortOrder === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} />)}
+                </button>
+              </div>
+
+              {/* Tabulka uživatelů */}
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="border-b text-slate-400 font-semibold uppercase">
-                      <th className="p-2">Role</th>
-                      <th className="p-2">VS</th>
-                      <th className="p-2">Jméno</th>
-                      <th className="p-2">E-mail</th>
-                      <th className="p-2">Osob</th>
-                      <th className="p-2">Cena</th>
-                      <th className="p-2">Stav</th>
+                      <th className="p-2.5">Fotka</th>
+                      <th className="p-2.5">Příjmení a Jméno</th>
+                      <th className="p-2.5">E-mail</th>
+                      <th className="p-2.5">Telefon</th>
+                      <th className="p-2.5">VS</th>
+                      <th className="p-2.5">Role</th>
+                      <th className="p-2.5">Záloha</th>
+                      <th className="p-2.5 text-right">Akce</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {allParticipants.map(p => {
-                      const pAtts = allAttendees.filter(a => a.participant_id === p.id);
-                      return (
-                        <tr key={p.id} className="hover:bg-slate-50">
-                          {/* ZDE: ZMĚNA ROLE POUZE ADMINISTRÁTOREM V TABULCE */}
-                          <td className="p-2">
-                            {isSuperAdmin(p.email, p.username) ? (
-                              <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-purple-100 text-purple-800">
-                                Hlavní Admin
-                              </span>
+                    {filteredUsers.map(p => (
+                      <tr key={p.id} className="hover:bg-slate-50 transition">
+                        <td className="p-2.5">
+                          <div className="w-8 h-8 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center flex-shrink-0 border">
+                            {p.photo_url ? (
+                              <img src={p.photo_url} alt="" className="w-full h-full object-cover" />
                             ) : (
-                              <select
-                                value={p.role || 'user'}
-                                onChange={async (e) => {
-                                  const newRole = e.target.value;
-                                  await supabase.from('participants').update({ role: newRole }).eq('id', p.id);
-                                  loadAllData();
-                                }}
-                                className={`px-2 py-0.5 rounded text-[11px] font-semibold border outline-none cursor-pointer ${
-                                  p.role === 'admin' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-slate-50 text-slate-700 border-slate-200'
-                                }`}
-                              >
-                                <option value="user">Uživatel</option>
-                                <option value="admin">Admin</option>
-                              </select>
+                              <User size={16} className="text-slate-400" />
                             )}
-                          </td>
-                          <td className="p-2 font-mono font-bold text-slate-700">{p.variable_symbol}</td>
-                          <td className="p-2 font-medium text-slate-900">{p.first_name} {p.last_name}</td>
-                          <td className="p-2 font-mono text-slate-500">{p.email}</td>
-                          <td className="p-2">{pAtts.length} os.</td>
-                          <td className="p-2 font-bold text-slate-800">{p.total_price || 0} Kč</td>
-                          <td className="p-2">
-                            <button
-                              onClick={async () => {
-                                await supabase.from('participants').update({ deposit_paid: !p.deposit_paid }).eq('id', p.id);
-                                loadAllData();
-                              }}
-                              className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
-                                p.deposit_paid ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                              }`}
-                            >
-                              {p.deposit_paid ? 'Zaplaceno' : 'Čeká'}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                          </div>
+                        </td>
+                        <td className="p-2.5 font-bold text-slate-800">
+                          {p.last_name} {p.first_name}
+                        </td>
+                        <td className="p-2.5 text-slate-600">{p.email}</td>
+                        <td className="p-2.5 text-slate-600">{p.phone || '–'}</td>
+                        <td className="p-2.5 font-mono font-bold text-slate-700">{p.variable_symbol}</td>
+                        <td className="p-2.5">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            p.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            {p.role === 'admin' ? 'Admin' : 'Uživatel'}
+                          </span>
+                        </td>
+                        <td className="p-2.5">
+                          <span className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                            p.deposit_paid ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {p.deposit_paid ? 'Zaplaceno' : 'Čeká'}
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-right">
+                          <button
+                            onClick={() => setEditingUserModal({ ...p })}
+                            className="p-2 bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-600 rounded-xl transition flex items-center gap-1 ml-auto font-medium"
+                            title="Upravit uživatele"
+                          >
+                            <Edit size={14} /> Upravit
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {filteredUsers.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="p-6 text-center text-slate-400">
+                          Žádný uživatel neodpovídá zadanému hledání.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
             </div>
 
+            {/* Globální nastavení akce */}
             <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
               <h3 className="font-bold text-slate-800 text-sm mb-4">Globální nastavení akce a banky</h3>
               <form onSubmit={async (e) => {
@@ -1661,6 +1775,220 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {/* MODÁLNÍ OKNO PRO EDITACI UŽIVATELE ADMINISTRÁTOREM */}
+      {editingUserModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[99999] flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl my-8 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6 border-b pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">
+                  Editace uživatele: {editingUserModal.first_name} {editingUserModal.last_name}
+                </h3>
+                <p className="text-xs text-slate-400">Jako administrátor můžete upravit všechny údaje kromě variabilního symbolu.</p>
+              </div>
+              <button onClick={() => setEditingUserModal(null)} className="p-1 text-slate-400 hover:text-slate-700">
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAdminSaveUser} className="space-y-4 text-xs">
+              {/* Fotka uživatele */}
+              <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-2xl border">
+                <div className="w-16 h-16 rounded-full bg-slate-200 overflow-hidden flex items-center justify-center border-2 border-white shadow flex-shrink-0">
+                  {editingUserModal.photo_url ? (
+                    <img src={editingUserModal.photo_url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <User size={28} className="text-slate-400" />
+                  )}
+                </div>
+                <div>
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border rounded-xl text-xs font-semibold cursor-pointer shadow-sm hover:bg-slate-50">
+                    <Camera size={14} /> Změnit fotografii (JPG)
+                    <input type="file" accept="image/jpeg" onChange={e => handlePhotoUpload(e, 'adminModal')} className="hidden" />
+                  </label>
+                  <p className="text-[10px] text-slate-400 mt-1">Nahradí stávající fotografii účastníka.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-600 mb-1 font-semibold">Jméno</label>
+                  <input
+                    type="text"
+                    value={editingUserModal.first_name || ''}
+                    onChange={e => setEditingUserModal({...editingUserModal, first_name: e.target.value})}
+                    className="w-full p-2.5 border rounded-xl bg-white"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 mb-1 font-semibold">Příjmení</label>
+                  <input
+                    type="text"
+                    value={editingUserModal.last_name || ''}
+                    onChange={e => setEditingUserModal({...editingUserModal, last_name: e.target.value})}
+                    className="w-full p-2.5 border rounded-xl bg-white"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 mb-1 font-semibold">Datum narození</label>
+                  <BirthDatePickerModal
+                    value={editingUserModal.birth_date || ''}
+                    onChange={d => setEditingUserModal({...editingUserModal, birth_date: d})}
+                  />
+                </div>
+
+                {/* VARIABILNÍ SYMBOL - TRVALE UZAMČENÝ I PRO ADMINA */}
+                <div>
+                  <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
+                    Variabilní symbol <Lock size={12} />
+                  </label>
+                  <input
+                    type="text"
+                    value={editingUserModal.variable_symbol || ''}
+                    disabled
+                    className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-700 font-mono font-bold cursor-not-allowed"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 mb-1 font-semibold">E-mail</label>
+                  <input
+                    type="email"
+                    value={editingUserModal.email || ''}
+                    onChange={e => setEditingUserModal({...editingUserModal, email: e.target.value})}
+                    className="w-full p-2.5 border rounded-xl bg-white"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 mb-1 font-semibold">Telefon</label>
+                  <input
+                    type="text"
+                    value={editingUserModal.phone || ''}
+                    onChange={e => setEditingUserModal({...editingUserModal, phone: e.target.value})}
+                    className="w-full p-2.5 border rounded-xl bg-white"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-slate-600 mb-1 font-semibold">Ulice a číslo popisné</label>
+                  <input
+                    type="text"
+                    value={editingUserModal.street || ''}
+                    onChange={e => setEditingUserModal({...editingUserModal, street: e.target.value})}
+                    className="w-full p-2.5 border rounded-xl bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 mb-1 font-semibold">Město</label>
+                  <input
+                    type="text"
+                    value={editingUserModal.city || ''}
+                    onChange={e => setEditingUserModal({...editingUserModal, city: e.target.value})}
+                    className="w-full p-2.5 border rounded-xl bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 mb-1 font-semibold">PSČ</label>
+                  <input
+                    type="text"
+                    value={editingUserModal.zip || ''}
+                    onChange={e => setEditingUserModal({...editingUserModal, zip: e.target.value})}
+                    className="w-full p-2.5 border rounded-xl bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 mb-1 font-semibold">Heslo (PIN)</label>
+                  <input
+                    type="text"
+                    value={editingUserModal.pin || ''}
+                    onChange={e => setEditingUserModal({...editingUserModal, pin: e.target.value})}
+                    className="w-full p-2.5 border rounded-xl bg-white font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 mb-1 font-semibold">Stav zálohy</label>
+                  <select
+                    value={editingUserModal.deposit_paid ? 'true' : 'false'}
+                    onChange={e => setEditingUserModal({...editingUserModal, deposit_paid: e.target.value === 'true'})}
+                    className="w-full p-2.5 border rounded-xl bg-white font-semibold"
+                  >
+                    <option value="false">Čeká na úhradu</option>
+                    <option value="true">Záloha zaplacena</option>
+                  </select>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block text-slate-600 mb-1 font-semibold">Role v systému</label>
+                  {isSuperAdmin(editingUserModal.email, editingUserModal.username) ? (
+                    <input
+                      type="text"
+                      value="Hlavní administrátor (systémově neměnné)"
+                      disabled
+                      className="w-full p-2.5 border rounded-xl bg-purple-50 text-purple-800 font-bold cursor-not-allowed"
+                    />
+                  ) : (
+                    <select
+                      value={editingUserModal.role || 'user'}
+                      onChange={e => setEditingUserModal({...editingUserModal, role: e.target.value})}
+                      className="w-full p-2.5 border rounded-xl bg-white font-semibold"
+                    >
+                      <option value="user">Uživatel</option>
+                      <option value="admin">Administrátor</option>
+                    </select>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center pt-4 border-t mt-4">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (isSuperAdmin(editingUserModal.email, editingUserModal.username)) {
+                      alert('Hlavního administrátora nelze smazat.');
+                      return;
+                    }
+                    if (confirm(`Opravdu chcete smazat uživatele ${editingUserModal.first_name} ${editingUserModal.last_name}?`)) {
+                      await supabase.from('participants').delete().eq('id', editingUserModal.id);
+                      setEditingUserModal(null);
+                      loadAllData();
+                    }
+                  }}
+                  className="px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl font-semibold"
+                >
+                  Smazat uživatele
+                </button>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingUserModal(null)}
+                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-medium"
+                  >
+                    Zrušit
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow"
+                  >
+                    Uložit změny
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
