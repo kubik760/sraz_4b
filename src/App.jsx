@@ -16,6 +16,15 @@ const MONTH_NAMES = [
   'Červenec', 'Srpen', 'Září', 'Říjen', 'Listopad', 'Prosinec'
 ];
 
+const PHONE_PREFIXES = [
+  { code: '+420', label: 'CZ (+420)' },
+  { code: '+421', label: 'SK (+421)' },
+  { code: '+49',  label: 'DE (+49)' },
+  { code: '+43',  label: 'AT (+43)' },
+  { code: '+48',  label: 'PL (+48)' },
+  { code: '+44',  label: 'UK (+44)' }
+];
+
 const formatCZ = (dateStr) => {
   if (!dateStr) return '';
   const d = new Date(dateStr);
@@ -78,6 +87,13 @@ const validatePasswordStrength = (pwd) => {
   if (!/[0-9]/.test(pwd)) return 'Heslo musí obsahovat alespoň jednu číslici.';
   if (!/[!@#$%^&*(),.?":{}|<>\-_]/.test(pwd)) return 'Heslo musí obsahovat alespoň jeden speciální znak (!@#$%...).';
   return null;
+};
+
+// Pomocná funkce pro kontrolu, zda jde o trvalého administrátora
+const isSuperAdmin = (email, username) => {
+  const e = (email || '').toLowerCase();
+  const u = (username || '').toLowerCase();
+  return e === 'kubik.horak@gmail.com' || e.includes('spidys') || u === 'spidys';
 };
 
 // --- MODÁLNÍ KALENDÁŘ PRO ROZSAH TERMÍNU (OD - DO) ---
@@ -363,7 +379,7 @@ export default function App() {
   const [activeScreen, setActiveScreen] = useState('welcome'); // 'welcome' | 'profile' | 'trip' | 'admin'
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  // Přihlašovací stav (přihlašování přes e-mail)
+  // Přihlašovací stav (E-mail + Heslo)
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPin, setLoginPin] = useState('');
 
@@ -379,7 +395,8 @@ export default function App() {
     street: '',
     city: '',
     zip: '',
-    phone: '',
+    phone_prefix: '+420',
+    phone_number: '',
     email: '',
     password: '',
     photo_url: ''
@@ -426,6 +443,17 @@ export default function App() {
     setAllAttendees(atts || []);
   }
 
+  // Rozdělení telefonního čísla na předvolbu a číslo
+  const parsePhone = (fullPhone) => {
+    if (!fullPhone) return { prefix: '+420', number: '' };
+    for (let p of PHONE_PREFIXES) {
+      if (fullPhone.startsWith(p.code)) {
+        return { prefix: p.code, number: fullPhone.slice(p.code.length).trim() };
+      }
+    }
+    return { prefix: '+420', number: fullPhone };
+  };
+
   // 1. PŘIHLÁŠENÍ (E-mail + Heslo)
   async function handleLogin(e) {
     e.preventDefault();
@@ -434,7 +462,6 @@ export default function App() {
 
     const cleanEmail = loginEmail.trim().toLowerCase();
 
-    // Vyhledáme účastníka podle e-mailu a hesla
     const { data, error } = await supabase
       .from('participants')
       .select('*')
@@ -454,8 +481,19 @@ export default function App() {
       return;
     }
 
+    // Ujistíme se, že kubik.horak@gmail.com a spidys mají vždy roli admin
+    if (isSuperAdmin(data.email, data.username) && data.role !== 'admin') {
+      data.role = 'admin';
+      await supabase.from('participants').update({ role: 'admin' }).eq('id', data.id);
+    }
+
+    const parsed = parsePhone(data.phone);
     setCurrentUser(data);
-    setProfileForm({ ...data });
+    setProfileForm({ 
+      ...data, 
+      phone_prefix: parsed.prefix, 
+      phone_number: parsed.number 
+    });
     loadParticipantAttendees(data.id);
     loadAllData();
     setActiveScreen('welcome');
@@ -466,12 +504,12 @@ export default function App() {
     setAttendees(data || []);
   }
 
-  // 2. REGISTRACE (Bez pole uživatelského jména)
+  // 2. REGISTRACE
   async function handleRegister(e) {
     e.preventDefault();
     setErrorMsg('');
 
-    const reqFields = ['first_name', 'last_name', 'birth_date', 'street', 'city', 'zip', 'phone', 'email', 'password'];
+    const reqFields = ['first_name', 'last_name', 'birth_date', 'street', 'city', 'zip', 'phone_number', 'email', 'password'];
     for (let f of reqFields) {
       if (!regData[f] || !regData[f].trim()) {
         setErrorMsg('Všechna povinná pole musí být vyplněna.');
@@ -487,7 +525,6 @@ export default function App() {
 
     const cleanEmail = regData.email.trim().toLowerCase();
 
-    // Kontrola, zda e-mail už neexistuje
     const { data: existingUser } = await supabase
       .from('participants')
       .select('id')
@@ -499,11 +536,9 @@ export default function App() {
       return;
     }
 
-    // Vygenerujeme další VS
     const { data: vsData } = await supabase.rpc('get_next_variable_symbol');
     const newVS = vsData || (1000 + Math.floor(Math.random() * 8000)).toString();
 
-    // Supabase Auth registrace (pošle 6místný OTP PIN na e-mail)
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: cleanEmail,
       password: regData.password.trim()
@@ -515,7 +550,8 @@ export default function App() {
     }
 
     const fullName = `${regData.first_name.trim()} ${regData.last_name.trim()}`;
-    const initialRole = cleanEmail.includes('spidys') ? 'admin' : 'user';
+    const initialRole = isSuperAdmin(cleanEmail, '') ? 'admin' : 'user';
+    const fullPhone = `${regData.phone_prefix} ${regData.phone_number.trim()}`;
 
     const { error: insertErr } = await supabase.from('participants').insert({
       auth_id: authData?.user?.id || null,
@@ -530,7 +566,7 @@ export default function App() {
       street: regData.street.trim(),
       city: regData.city.trim(),
       zip: regData.zip.trim(),
-      phone: regData.phone.trim(),
+      phone: fullPhone,
       email: cleanEmail,
       photo_url: regData.photo_url || '',
       is_verified: false
@@ -567,8 +603,13 @@ export default function App() {
     const { data: userProfile } = await supabase.from('participants').select('*').eq('email', verifyEmail).single();
 
     if (userProfile) {
+      const parsed = parsePhone(userProfile.phone);
       setCurrentUser(userProfile);
-      setProfileForm({ ...userProfile });
+      setProfileForm({ 
+        ...userProfile, 
+        phone_prefix: parsed.prefix, 
+        phone_number: parsed.number 
+      });
       loadParticipantAttendees(userProfile.id);
       loadAllData();
       setActiveScreen('welcome');
@@ -579,7 +620,7 @@ export default function App() {
     }
   }
 
-  // 4. ŽÁDOST O RESET HESLA
+  // 4. RESET HESLA
   async function handleForgotPassword(e) {
     e.preventDefault();
     setErrorMsg('');
@@ -598,7 +639,7 @@ export default function App() {
     setInfoMsg(`Odkaz pro nastavení nového hesla byl odeslán na ${cleanEmail}. Zkontrolujte si příchozí poštu.`);
   }
 
-  // 5. NASTAVENÍ NOVÉHO HESLA (PO PROKLIKU Z E-MAILU)
+  // 5. NASTAVENÍ NOVÉHO HESLA
   async function handleUpdatePassword(e) {
     e.preventDefault();
     setErrorMsg('');
@@ -618,7 +659,6 @@ export default function App() {
       return;
     }
 
-    // Aktualizujeme heslo i v naší tabulce participants
     if (authUser?.user?.email) {
       await supabase.from('participants').update({ pin: newResetPassword.trim() }).eq('email', authUser.user.email);
     }
@@ -627,7 +667,7 @@ export default function App() {
     setAuthView('login');
   }
 
-  // Zpracování fotky
+  // Fotka
   const handlePhotoUpload = async (e, target) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -651,8 +691,11 @@ export default function App() {
       }
     }
 
+    const fullPhone = `${profileForm.phone_prefix || '+420'} ${(profileForm.phone_number || '').trim()}`.trim();
+
+    // Po registraci se jméno, příjmení, datum narození ani variabilní symbol nemění!
     const payload = {
-      phone: profileForm.phone || '',
+      phone: fullPhone,
       email: profileForm.email || '',
       street: profileForm.street || '',
       city: profileForm.city || '',
@@ -661,20 +704,15 @@ export default function App() {
       pin: profileForm.password ? profileForm.password.trim() : currentUser.pin
     };
 
-    if (currentUser.role === 'admin') {
-      payload.first_name = profileForm.first_name;
-      payload.last_name = profileForm.last_name;
-      payload.birth_date = profileForm.birth_date;
-      payload.full_name = `${profileForm.first_name} ${profileForm.last_name}`.trim();
-      if (currentUser.username !== 'spidys' && !currentUser.email.includes('spidys')) {
-        payload.role = profileForm.role;
-      }
+    // Role se u kubik.horak@gmail.com a spidys nikdy nemění
+    if (!isSuperAdmin(currentUser.email, currentUser.username) && currentUser.role === 'admin') {
+      payload.role = profileForm.role;
     }
 
     await supabase.from('participants').update(payload).eq('id', currentUser.id);
-    const updated = { ...currentUser, ...payload };
+    const updated = { ...currentUser, ...payload, phone: fullPhone };
     setCurrentUser(updated);
-    setProfileForm(updated);
+    setProfileForm({ ...updated, phone_prefix: profileForm.phone_prefix, phone_number: profileForm.phone_number });
     loadAllData();
     alert('Profil byl v pořádku aktualizován.');
   }
@@ -721,7 +759,7 @@ export default function App() {
     }
   }, [currentUser, attendees, profileForm.pet_type, profileForm.transport_type, settings]);
 
-  // --- 1. AUTENTIZAČNÍ OBRAZOVKY ---
+  // --- 1. AUTENTIZACE ---
   if (!currentUser) {
     return (
       <div className="flex items-center justify-center min-h-screen px-4 bg-slate-50 py-12">
@@ -749,7 +787,7 @@ export default function App() {
             </div>
           )}
 
-          {/* A. PŘIHLÁŠENÍ (E-mail + Heslo) */}
+          {/* A. PŘIHLÁŠENÍ */}
           {authView === 'login' && (
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
@@ -840,7 +878,7 @@ export default function App() {
             </form>
           )}
 
-          {/* C. NASTAVENÍ NOVÉHO HESLA (PO PROKLIKU) */}
+          {/* C. RESET HESLA */}
           {authView === 'reset' && (
             <form onSubmit={handleUpdatePassword} className="space-y-4">
               <p className="text-xs text-slate-600">
@@ -866,10 +904,9 @@ export default function App() {
             </form>
           )}
 
-          {/* D. REGISTRACE (BEZ POLE UŽIVATELSKÉ JMÉNO) */}
+          {/* D. REGISTRACE */}
           {authView === 'register' && (
             <form onSubmit={handleRegister} className="space-y-4">
-              {/* Fotka (volitelná, JPG) */}
               <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-2xl border border-slate-100">
                 <div className="w-16 h-16 rounded-full bg-slate-200 overflow-hidden flex items-center justify-center border-2 border-white shadow-sm flex-shrink-0">
                   {regData.photo_url ? (
@@ -913,11 +950,32 @@ export default function App() {
                   <label className="block text-slate-500 mb-1 font-semibold">PSČ *</label>
                   <input type="text" value={regData.zip} onChange={e => setRegData({...regData, zip: e.target.value})} className="w-full p-2.5 border rounded-xl" required />
                 </div>
-                <div>
+
+                {/* Telefon s mezinárodní předvolbou */}
+                <div className="col-span-2">
                   <label className="block text-slate-500 mb-1 font-semibold">Telefon *</label>
-                  <input type="tel" value={regData.phone} onChange={e => setRegData({...regData, phone: e.target.value})} placeholder="+420..." className="w-full p-2.5 border rounded-xl" required />
+                  <div className="flex gap-2">
+                    <select
+                      value={regData.phone_prefix}
+                      onChange={e => setRegData({...regData, phone_prefix: e.target.value})}
+                      className="p-2.5 border rounded-xl bg-slate-50 font-semibold text-xs outline-none w-28"
+                    >
+                      {PHONE_PREFIXES.map(p => (
+                        <option key={p.code} value={p.code}>{p.label}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="tel"
+                      value={regData.phone_number}
+                      onChange={e => setRegData({...regData, phone_number: e.target.value})}
+                      placeholder="777 123 456"
+                      className="w-full p-2.5 border rounded-xl"
+                      required
+                    />
+                  </div>
                 </div>
-                <div>
+
+                <div className="col-span-2">
                   <label className="block text-slate-500 mb-1 font-semibold">E-mail (váš login) *</label>
                   <input type="email" value={regData.email} onChange={e => setRegData({...regData, email: e.target.value})} placeholder="vas@email.cz" className="w-full p-2.5 border rounded-xl" required />
                 </div>
@@ -927,7 +985,7 @@ export default function App() {
                 </div>
               </div>
 
-              <p className="text-[10px] text-slate-400">* Variabilní symbol bude vygenerován automaticky a nelze jej měnit.</p>
+              <p className="text-[10px] text-slate-400">* Jméno, příjmení, datum narození a variabilní symbol po registraci nelze měnit.</p>
 
               <button
                 type="submit"
@@ -948,7 +1006,7 @@ export default function App() {
             </form>
           )}
 
-          {/* E. OVĚŘENÍ PINu */}
+          {/* E. VERIFIKACE PINu */}
           {authView === 'verify' && (
             <form onSubmit={handleVerifyOtp} className="space-y-4">
               <p className="text-xs text-slate-600 text-center">
@@ -988,7 +1046,9 @@ export default function App() {
     );
   }
 
-  // --- 2. PŘIHLÁŠENÉ ROZHRANÍ (S HAMBURGER MENU) ---
+  // --- 2. PŘIHLÁŠENÉ ROZHRANÍ ---
+  const isUserSuperAdmin = isSuperAdmin(currentUser.email, currentUser.username);
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
       {/* HORNÍ LIŠTA */}
@@ -1120,7 +1180,7 @@ export default function App() {
               >
                 <User className="text-indigo-600 mb-2" size={28} />
                 <h3 className="font-bold text-sm text-slate-800">Můj profil</h3>
-                <p className="text-xs text-slate-400 mt-1">Uprav své kontaktní údaje, telefon, adresu nebo si změň fotografii.</p>
+                <p className="text-xs text-slate-400 mt-1">Uprav své kontaktní údaje, telefon s předvolbou, adresu nebo fotografii.</p>
               </div>
             </div>
           </div>
@@ -1130,7 +1190,7 @@ export default function App() {
         {activeScreen === 'profile' && (
           <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-100">
             <h2 className="text-lg font-bold text-slate-800 mb-1">Můj osobní profil</h2>
-            <p className="text-xs text-slate-400 mb-6">Šedivě označená pole jsou uzamčena a může je měnit pouze organizátor akce.</p>
+            <p className="text-xs text-slate-400 mb-6">Šedivě označená pole (jméno, příjmení, datum narození a variabilní symbol) jsou trvale uzamčena.</p>
 
             <div className="flex items-center gap-6 mb-6 pb-6 border-b">
               <div className="w-20 h-20 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center border-2 border-blue-500 shadow-md flex-shrink-0">
@@ -1150,6 +1210,7 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              {/* TRVALE UZAMČENÁ POLE PRO KAŽDÉHO */}
               <div>
                 <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
                   Jméno <Lock size={12} />
@@ -1157,9 +1218,8 @@ export default function App() {
                 <input
                   type="text"
                   value={profileForm.first_name || ''}
-                  disabled={currentUser.role !== 'admin'}
-                  onChange={e => setProfileForm({...profileForm, first_name: e.target.value})}
-                  className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-500 font-medium"
+                  disabled
+                  className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-500 font-medium cursor-not-allowed"
                 />
               </div>
 
@@ -1170,9 +1230,8 @@ export default function App() {
                 <input
                   type="text"
                   value={profileForm.last_name || ''}
-                  disabled={currentUser.role !== 'admin'}
-                  onChange={e => setProfileForm({...profileForm, last_name: e.target.value})}
-                  className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-500 font-medium"
+                  disabled
+                  className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-500 font-medium cursor-not-allowed"
                 />
               </div>
 
@@ -1180,16 +1239,12 @@ export default function App() {
                 <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
                   Datum narození <Lock size={12} />
                 </label>
-                {currentUser.role === 'admin' ? (
-                  <BirthDatePickerModal value={profileForm.birth_date} onChange={d => setProfileForm({...profileForm, birth_date: d})} />
-                ) : (
-                  <input
-                    type="text"
-                    value={formatCZ(profileForm.birth_date) || '–'}
-                    disabled
-                    className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-500 font-medium"
-                  />
-                )}
+                <input
+                  type="text"
+                  value={formatCZ(profileForm.birth_date) || '–'}
+                  disabled
+                  className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-500 font-medium cursor-not-allowed"
+                />
               </div>
 
               <div>
@@ -1200,20 +1255,21 @@ export default function App() {
                   type="text"
                   value={profileForm.variable_symbol || ''}
                   disabled
-                  className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-700 font-mono font-bold"
+                  className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-700 font-mono font-bold cursor-not-allowed"
                 />
               </div>
 
+              {/* ROLE V SYSTÉMU - Pro kubik.horak@gmail.com a spidys NEMĚNNÁ */}
               <div className="col-span-2">
                 <label className="block text-slate-400 mb-1 font-semibold flex items-center gap-1">
                   Role v systému <Lock size={12} />
                 </label>
-                {currentUser.email.includes('spidys') ? (
+                {isUserSuperAdmin ? (
                   <input
                     type="text"
                     value="Hlavní administrátor (systémově neměnné)"
                     disabled
-                    className="w-full p-2.5 border rounded-xl bg-purple-50 text-purple-800 font-bold"
+                    className="w-full p-2.5 border rounded-xl bg-purple-50 text-purple-800 font-bold cursor-not-allowed"
                   />
                 ) : currentUser.role === 'admin' ? (
                   <select
@@ -1229,23 +1285,37 @@ export default function App() {
                     type="text"
                     value={profileForm.role === 'admin' ? 'Administrátor' : 'Uživatel'}
                     disabled
-                    className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-500 font-medium"
+                    className="w-full p-2.5 border rounded-xl bg-slate-100 text-slate-500 font-medium cursor-not-allowed"
                   />
                 )}
               </div>
 
+              {/* EDITOVATELNÉ KONTAKTNÍ ÚDAJE */}
               <div className="col-span-2 pt-3 border-t">
                 <span className="font-bold text-slate-700">Kontaktní údaje a adresa (můžete upravovat):</span>
               </div>
 
-              <div>
+              {/* Telefon s předvolbou */}
+              <div className="col-span-2 sm:col-span-1">
                 <label className="block text-slate-600 mb-1 font-semibold">Telefon</label>
-                <input
-                  type="tel"
-                  value={profileForm.phone || ''}
-                  onChange={e => setProfileForm({...profileForm, phone: e.target.value})}
-                  className="w-full p-2.5 border rounded-xl bg-white"
-                />
+                <div className="flex gap-2">
+                  <select
+                    value={profileForm.phone_prefix || '+420'}
+                    onChange={e => setProfileForm({...profileForm, phone_prefix: e.target.value})}
+                    className="p-2.5 border rounded-xl bg-slate-50 font-semibold text-xs outline-none w-28"
+                  >
+                    {PHONE_PREFIXES.map(p => (
+                      <option key={p.code} value={p.code}>{p.label}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="tel"
+                    value={profileForm.phone_number || ''}
+                    onChange={e => setProfileForm({...profileForm, phone_number: e.target.value})}
+                    placeholder="777 123 456"
+                    className="w-full p-2.5 border rounded-xl bg-white"
+                  />
+                </div>
               </div>
 
               <div>
